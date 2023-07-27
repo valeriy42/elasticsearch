@@ -68,6 +68,8 @@ class LinearProgrammingPlanSolver {
     private final Map<Node, Double> normalizedMemoryPerNode;
     private final Map<Node, Integer> coresPerNode;
     private final Map<AssignmentPlan.Deployment, Double> normalizedMemoryPerModel;
+    private final Map<AssignmentPlan.Deployment, Double> staticNormalizedMemoryPerModel;
+    private final Map<AssignmentPlan.Deployment, Double> dynamicNormalizedMemoryPerModel;
 
     private final int maxNodeCores;
     private final long maxModelMemoryBytes;
@@ -84,12 +86,17 @@ class LinearProgrammingPlanSolver {
             .filter(m -> m.threadsPerAllocation() <= maxNodeCores)
             .toList();
 
+        // TODO: update computation based on Deployment::staticMemoryBytes and Deployment::dynamicMemoryBytes
         maxModelMemoryBytes = this.deployments.stream().map(AssignmentPlan.Deployment::memoryBytes).max(Long::compareTo).orElse(1L);
         normalizedMemoryPerNode = this.nodes.stream()
             .collect(Collectors.toMap(Function.identity(), n -> n.availableMemoryBytes() / (double) maxModelMemoryBytes));
         coresPerNode = this.nodes.stream().collect(Collectors.toMap(Function.identity(), Node::cores));
         normalizedMemoryPerModel = this.deployments.stream()
             .collect(Collectors.toMap(Function.identity(), m -> m.memoryBytes() / (double) maxModelMemoryBytes));
+        staticNormalizedMemoryPerModel = this.deployments.stream()
+            .collect(Collectors.toMap(Function.identity(), m -> m.staticMemoryBytes() / (double) maxModelMemoryBytes));
+        dynamicNormalizedMemoryPerModel = this.deployments.stream()
+            .collect(Collectors.toMap(Function.identity(), m -> m.dynamicMemoryBytes() / (double) maxModelMemoryBytes));
     }
 
     AssignmentPlan solvePlan(boolean useBinPackingOnly) {
@@ -133,7 +140,9 @@ class LinearProgrammingPlanSolver {
         Node n,
         Map<Tuple<AssignmentPlan.Deployment, Node>, Double> weights
     ) {
-        return (1 + weights.get(Tuple.tuple(m, n)) - (m.memoryBytes() > n.availableMemoryBytes() ? 10 : 0)) - L1 * normalizedMemoryPerModel
+        // return (1 + weights.get(Tuple.tuple(m, n)) - (m.memoryBytes() > n.availableMemoryBytes() ? 10 : 0)) - L1 * normalizedMemoryPerModel
+        //     .get(m) / maxNodeCores;
+        return (1 + weights.get(Tuple.tuple(m, n)) - (m.memoryBytes() > n.availableMemoryBytes() ? 10 : 0)) - L1 * staticNormalizedMemoryPerModel
             .get(m) / maxNodeCores;
     }
 
@@ -185,7 +194,13 @@ class LinearProgrammingPlanSolver {
     }
 
     private double descendingSizeAnyFitsModelOrder(AssignmentPlan.Deployment m) {
-        return (m.currentAllocationsByNodeId().isEmpty() ? 1 : 2) * -normalizedMemoryPerModel.get(m) * m.threadsPerAllocation();
+        // return (m.currentAllocationsByNodeId().isEmpty() ? 1 : 2) * -normalizedMemoryPerModel.get(m) * m.threadsPerAllocation();
+        // TODO: check if I need to multiply by threadsPerAllocation
+        return (m.currentAllocationsByNodeId().isEmpty() ? 1 : 2) * -minimumMemoryRequired(m) * m.threadsPerAllocation();
+    }
+
+    private double minimumMemoryRequired(AssignmentPlan.Deployment m) {
+        return staticNormalizedMemoryPerModel.get(m) + dynamicNormalizedMemoryPerModel.get(m);
     }
 
     private double descendingSizeAnyFitsNodeOrder(Node n, AssignmentPlan.Deployment m, AssignmentPlan.Builder assignmentPlan) {
@@ -307,7 +322,10 @@ class LinearProgrammingPlanSolver {
             List<Double> modelMemories = new ArrayList<>();
             deployments.stream().filter(m -> m.currentAllocationsByNodeId().containsKey(n.id()) == false).forEach(m -> {
                 allocations.add(allocationVars.get(Tuple.tuple(m, n)));
-                modelMemories.add(normalizedMemoryPerModel.get(m) * m.threadsPerAllocation() / (double) coresPerNode.get(n));
+                // modelMemories.add(normalizedMemoryPerModel.get(m) * m.threadsPerAllocation() / (double) coresPerNode.get(n));
+                modelMemories.add((staticNormalizedMemoryPerModel.get(m)  / (double) coresPerNode.get(n) + dynamicNormalizedMemoryPerModel.get(m))
+                * m.threadsPerAllocation());
+
             });
             model.addExpression("used_memory_on_node_" + n.id() + "_not_more_than_available")
                 .upper(normalizedMemoryPerNode.get(n))

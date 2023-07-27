@@ -135,8 +135,9 @@ class RandomizedAssignmentRounding {
                 for (AssignmentPlan.Deployment m : deployments) {
                     Tuple<AssignmentPlan.Deployment, Node> assignment = Tuple.tuple(m, n);
                     if (assignments.get(assignment) > 0) {
-                        totalModelMemory += m.memoryBytes();
-                        maxTotalThreads += (int) Math.ceil(allocations.get(assignment)) * m.threadsPerAllocation();
+                        int allocationsForDeployment = (int) Math.ceil(allocations.get(assignment));
+                        totalModelMemory += m.getMemoryUsage(allocationsForDeployment);
+                        maxTotalThreads +=  allocationsForDeployment * m.threadsPerAllocation();
                         assignedDeployments.add(m);
                     }
                 }
@@ -201,7 +202,8 @@ class RandomizedAssignmentRounding {
                 }
                 int extraAllocations = Math.min(
                     resourceTracker.remainingNodeCores.get(n) / m.threadsPerAllocation(),
-                    resourceTracker.remainingModelAllocations.get(m)
+                    Math.min(resourceTracker.remainingModelAllocations.get(m),
+                    m.findExcessAllocationsCount(resourceTracker.remainingNodeCores.get(n), resourceTracker.remainingNodeMemory.get(n)))
                 );
                 allocations.compute(Tuple.tuple(m, n), (k, v) -> v + extraAllocations);
                 resourceTracker.assign(m, n, extraAllocations);
@@ -211,7 +213,7 @@ class RandomizedAssignmentRounding {
         }
 
         private double remainingModelOrder(AssignmentPlan.Deployment m) {
-            return (m.currentAllocationsByNodeId().isEmpty() ? 1 : 2) * -m.memoryBytes();
+            return (m.currentAllocationsByNodeId().isEmpty() ? 1 : 2) * -m.getMinimumMemoryUsage();
         }
 
         private boolean hasSoftAssignments(Node n) {
@@ -276,7 +278,7 @@ class RandomizedAssignmentRounding {
                     ? (int) Math.ceil(allocations.get(assignment))
                     : (int) Math.floor(allocations.get(assignment));
 
-                if (m.memoryBytes() > resourceTracker.remainingNodeMemory.get(n)
+                if (m.getMinimumMemoryUsage() > resourceTracker.remainingNodeMemory.get(n)
                     || m.threadsPerAllocation() > resourceTracker.remainingNodeCores.get(n)
                     || roundedAllocations == 0
                     || random.nextDouble() > assignments.get(assignment)) {
@@ -294,7 +296,7 @@ class RandomizedAssignmentRounding {
         private void unassignOversizedModels(Node n) {
             for (AssignmentPlan.Deployment m : deployments) {
                 Tuple<AssignmentPlan.Deployment, Node> assignment = Tuple.tuple(m, n);
-                if (assignments.get(assignment) < 1.0 && m.memoryBytes() > resourceTracker.remainingNodeMemory.get(n)) {
+                if (assignments.get(assignment) < 1.0 && m.getMinimumMemoryUsage() > resourceTracker.remainingNodeMemory.get(n)) {
                     unassign(assignment);
                 }
             }
@@ -338,7 +340,8 @@ class RandomizedAssignmentRounding {
                 .toList()) {
                 for (Node n : nodes.stream()
                     .filter(
-                        n -> resourceTracker.remainingNodeMemory.get(n) >= m.memoryBytes()
+                        // TODO: verify that we can use unscaled memory here
+                        n -> resourceTracker.remainingNodeMemory.get(n) >= m.getMinimumMemoryUsage()
                             && resourceTracker.remainingNodeCores.get(n) >= m.threadsPerAllocation()
                             && resultAllocations.get(Tuple.tuple(m, n)) == 0
                     )
@@ -427,7 +430,7 @@ class RandomizedAssignmentRounding {
         void assign(AssignmentPlan.Deployment m, Node n, int allocations) {
             if (assignments.contains(Tuple.tuple(m, n)) == false) {
                 assignments.add(Tuple.tuple(m, n));
-                remainingNodeMemory.compute(n, (k, v) -> v - m.memoryBytes());
+                remainingNodeMemory.compute(n, (k, v) -> v - m.getMemoryUsage(allocations));
             }
             remainingNodeCores.compute(n, (k, v) -> v - allocations * m.threadsPerAllocation());
             remainingModelAllocations.compute(m, (k, v) -> v - allocations);
