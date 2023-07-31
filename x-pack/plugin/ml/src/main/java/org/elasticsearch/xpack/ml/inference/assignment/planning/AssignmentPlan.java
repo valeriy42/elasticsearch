@@ -63,6 +63,14 @@ public class AssignmentPlan implements Comparable<AssignmentPlan> {
             return maxAssignedAllocations > 0;
         }
 
+        long memoryBytes() {
+            return getMemoryUsage(allocations);
+        }
+
+        long getMemoryUsage() {
+            return getMemoryUsage(allocations);
+        }
+
         long getMemoryUsage(int allocations) {
             return getAllocationMemoryUsage(allocations) + staticMemoryBytes;
         }

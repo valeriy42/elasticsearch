@@ -35,7 +35,7 @@ abstract class AbstractPreserveAllocations {
         int coresUsed = 0;
         for (Deployment m : deployments) {
             if (m.currentAllocationsByNodeId().containsKey(n.id())) {
-                bytesUsed += m.memoryBytes();
+                bytesUsed += m.getMemoryUsage();
                 coresUsed += calculateUsedCores(n, m);
             }
         }
@@ -54,7 +54,8 @@ abstract class AbstractPreserveAllocations {
 
         return new Deployment(
             m.id(),
-            m.memoryBytes(),
+            m.staticMemoryBytes(),
+            m.dynamicMemoryBytes(),
             m.allocations() - calculatePreservedAllocations(m),
             m.threadsPerAllocation(),
             calculateAllocationsPerNodeToPreserve(m),
@@ -83,7 +84,7 @@ abstract class AbstractPreserveAllocations {
                     allocations += addPreservedAllocations(n, m);
                     // As the node has all its available memory we need to manually account memory of models with
                     // current allocations.
-                    mergedPlanBuilder.accountMemory(m, n);
+                    mergedPlanBuilder.accountMemory(m, n, allocations);
                 }
                 if (allocations > 0) {
                     mergedPlanBuilder.assignModelToNode(m, n, allocations);

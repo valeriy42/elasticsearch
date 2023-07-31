@@ -137,7 +137,7 @@ class TrainedModelAssignmentRebalancer {
                 if (m.currentAllocationsByNodeId().containsKey(originalNode.id())) {
                     // As the node has all its available memory we need to manually account memory of models with
                     // current allocations.
-                    dest.accountMemory(m, originalNode);
+                    dest.accountMemory(m, originalNode, assignment.getValue());
                 }
             }
         }
@@ -165,6 +165,7 @@ class TrainedModelAssignmentRebalancer {
                     .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getTargetAllocations()));
                 return new AssignmentPlan.Deployment(
                     assignment.getDeploymentId(),
+                    
                     assignment.getTaskParams().estimateMemoryUsageBytes(),
                     assignment.getTaskParams().getNumberOfAllocations(),
                     assignment.getTaskParams().getThreadsPerAllocation(),

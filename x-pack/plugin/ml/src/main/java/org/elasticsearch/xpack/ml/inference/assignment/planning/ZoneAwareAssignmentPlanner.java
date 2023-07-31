@@ -122,7 +122,8 @@ public class ZoneAwareAssignmentPlanner {
             .map(
                 m -> new AssignmentPlan.Deployment(
                     m.id(),
-                    m.memoryBytes(),
+                    m.staticMemoryBytes(),
+                    m.dynamicMemoryBytes(),
                     modelIdToTargetAllocations.get(m.id()),
                     m.threadsPerAllocation(),
                     m.currentAllocationsByNodeId(),
@@ -147,7 +148,8 @@ public class ZoneAwareAssignmentPlanner {
             .map(
                 m -> new AssignmentPlan.Deployment(
                     m.id(),
-                    m.memoryBytes(),
+                    m.staticMemoryBytes(),
+                    m.dynamicMemoryBytes(),
                     m.allocations(),
                     m.threadsPerAllocation(),
                     allocationsByNodeIdByModelId.get(m.id()),
@@ -182,7 +184,7 @@ public class ZoneAwareAssignmentPlanner {
                 if (originalDeployment.currentAllocationsByNodeId().containsKey(originalNode.id())) {
                     // As the node has all its available memory we need to manually account memory of models with
                     // current allocations.
-                    planBuilder.accountMemory(m, originalNode);
+                    planBuilder.accountMemory(m, originalNode, originalDeployment.currentAllocationsByNodeId().get(originalNode.id()));
                 }
             }
         }

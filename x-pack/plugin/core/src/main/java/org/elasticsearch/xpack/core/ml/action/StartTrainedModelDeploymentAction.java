@@ -380,6 +380,8 @@ public class StartTrainedModelDeploymentAction extends ActionType<CreateTrainedM
 
         public static final Version VERSION_INTRODUCED = Version.V_8_0_0;
         private static final ParseField MODEL_BYTES = new ParseField("model_bytes");
+        private static final ParseField STATIC_MEMORY_BYTES = new ParseField("static_memory_bytes");
+        private static final ParseField DYNAMIC_MEMORY_BYTES = new ParseField("dynamic_memory_bytes");
         public static final ParseField NUMBER_OF_ALLOCATIONS = new ParseField("number_of_allocations");
         public static final ParseField THREADS_PER_ALLOCATION = new ParseField("threads_per_allocation");
         // number_of_allocations was previously named model_threads
@@ -411,6 +413,7 @@ public class StartTrainedModelDeploymentAction extends ActionType<CreateTrainedM
             PARSER.declareString(ConstructingObjectParser.constructorArg(), TrainedModelConfig.MODEL_ID);
             PARSER.declareString(ConstructingObjectParser.optionalConstructorArg(), Request.DEPLOYMENT_ID);
             PARSER.declareLong(ConstructingObjectParser.constructorArg(), MODEL_BYTES);
+            PARSER.declareLong(ConstructingObjectParser.optionalConstructorArg(), STATIC_MEMORY_BYTES);
             PARSER.declareInt(ConstructingObjectParser.optionalConstructorArg(), NUMBER_OF_ALLOCATIONS);
             PARSER.declareInt(ConstructingObjectParser.optionalConstructorArg(), THREADS_PER_ALLOCATION);
             PARSER.declareInt(ConstructingObjectParser.constructorArg(), QUEUE_CAPACITY);

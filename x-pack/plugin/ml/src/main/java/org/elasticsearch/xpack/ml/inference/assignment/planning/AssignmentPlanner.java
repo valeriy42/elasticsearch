@@ -112,7 +112,8 @@ public class AssignmentPlanner {
             .map(
                 m -> new AssignmentPlan.Deployment(
                     m.id(),
-                    m.memoryBytes(),
+                    m.staticMemoryBytes(),
+                    m.dynamicMemoryBytes(),
                     1,
                     m.threadsPerAllocation(),
                     m.currentAllocationsByNodeId(),
@@ -141,7 +142,8 @@ public class AssignmentPlanner {
                 : Map.of();
             return new AssignmentPlan.Deployment(
                 m.id(),
-                m.memoryBytes(),
+                m.staticMemoryBytes(),
+                m.dynamicMemoryBytes(),
                 m.allocations(),
                 m.threadsPerAllocation(),
                 currentAllocationsByNodeId,
