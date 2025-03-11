@@ -69,14 +69,12 @@ public class GetDatafeedRunningStateAction extends ActionType<GetDatafeedRunning
 
         @Override
         public boolean match(Task task) {
-            return task instanceof StartDatafeedAction.DatafeedTaskMatcher
-                    && datafeedTaskIds.contains(task.getDescription());
+            return task instanceof StartDatafeedAction.DatafeedTaskMatcher && datafeedTaskIds.contains(task.getDescription());
         }
 
         @Override
         public Task createTask(long id, String type, String action, TaskId parentTaskId, Map<String, String> headers) {
-            return new CancellableTask(id, type, action, format("get_datafeed_running_state[%s]", datafeedTaskIds),
-                    parentTaskId, headers);
+            return new CancellableTask(id, type, action, format("get_datafeed_running_state[%s]", datafeedTaskIds), parentTaskId, headers);
         }
     }
 
@@ -94,8 +92,7 @@ public class GetDatafeedRunningStateAction extends ActionType<GetDatafeedRunning
             @Nullable
             private final SearchInterval searchInterval;
 
-            public RunningState(boolean realTimeConfigured, boolean realTimeRunning,
-                    @Nullable SearchInterval searchInterval) {
+            public RunningState(boolean realTimeConfigured, boolean realTimeRunning, @Nullable SearchInterval searchInterval) {
                 this.realTimeConfigured = realTimeConfigured;
                 this.realTimeRunning = realTimeRunning;
                 this.searchInterval = searchInterval;
@@ -113,14 +110,12 @@ public class GetDatafeedRunningStateAction extends ActionType<GetDatafeedRunning
 
             @Override
             public boolean equals(Object o) {
-                if (this == o)
-                    return true;
-                if (o == null || getClass() != o.getClass())
-                    return false;
+                if (this == o) return true;
+                if (o == null || getClass() != o.getClass()) return false;
                 RunningState that = (RunningState) o;
                 return realTimeConfigured == that.realTimeConfigured
-                        && realTimeRunning == that.realTimeRunning
-                        && Objects.equals(searchInterval, that.searchInterval);
+                    && realTimeRunning == that.realTimeRunning
+                    && Objects.equals(searchInterval, that.searchInterval);
             }
 
             @Override
@@ -155,16 +150,16 @@ public class GetDatafeedRunningStateAction extends ActionType<GetDatafeedRunning
         public static Response fromResponses(List<Response> responses) {
 
             Map<String, List<RunningState>> groupedStates = responses.stream()
-                    .flatMap(r -> r.datafeedRunningState.entrySet().stream())
-                    .filter(entry -> entry.getValue() != null)
-                    .collect(Collectors.groupingBy(Map.Entry::getKey,
-                            Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+                .flatMap(r -> r.datafeedRunningState.entrySet().stream())
+                .filter(entry -> entry.getValue() != null)
+                .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
 
             Map<String, RunningState> finalStates = new HashMap<>();
             for (Map.Entry<String, List<RunningState>> entry : groupedStates.entrySet()) {
-                List<RunningState> sortedStates = entry.getValue().stream()
-                        .sorted(Comparator.comparing(RunningState::getCreationTime).reversed())
-                        .collect(Collectors.toList());
+                List<RunningState> sortedStates = entry.getValue()
+                    .stream()
+                    .sorted(Comparator.comparing(RunningState::getCreationTime).reversed())
+                    .collect(Collectors.toList());
 
                 // Only keep the state for the most recent task if there is more than one
                 if (!sortedStates.isEmpty()) {
@@ -205,10 +200,8 @@ public class GetDatafeedRunningStateAction extends ActionType<GetDatafeedRunning
 
         @Override
         public boolean equals(Object o) {
-            if (this == o)
-                return true;
-            if (o == null || getClass() != o.getClass())
-                return false;
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
             Response response = (Response) o;
             return Objects.equals(this.datafeedRunningState, response.datafeedRunningState);
         }
