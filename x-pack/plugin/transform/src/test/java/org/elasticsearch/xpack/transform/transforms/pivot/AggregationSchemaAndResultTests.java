@@ -13,12 +13,12 @@ import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.action.ActionType;
 import org.elasticsearch.action.LatchedActionListener;
 import org.elasticsearch.action.fieldcaps.FieldCapabilities;
+import org.elasticsearch.action.fieldcaps.FieldCapabilitiesBuilder;
 import org.elasticsearch.action.fieldcaps.FieldCapabilitiesRequest;
 import org.elasticsearch.action.fieldcaps.FieldCapabilitiesResponse;
 import org.elasticsearch.action.support.ActionTestUtils;
 import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.common.Strings;
-import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.search.aggregations.Aggregation;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
@@ -28,6 +28,8 @@ import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.client.NoOpClient;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
+import org.elasticsearch.xpack.core.transform.transforms.SettingsConfig;
+import org.elasticsearch.xpack.core.transform.transforms.SourceConfig;
 import org.elasticsearch.xpack.core.transform.transforms.pivot.AggregationConfig;
 import org.elasticsearch.xpack.core.transform.transforms.pivot.GroupConfig;
 import org.elasticsearch.xpack.core.transform.transforms.pivot.GroupConfigTests;
@@ -91,10 +93,7 @@ public class AggregationSchemaAndResultTests extends ESTestCase {
                     String[] nameTypePair = Strings.split(field, "_");
                     String type = nameTypePair != null ? nameTypePair[0] : "long";
 
-                    fieldCaps.put(
-                        field,
-                        Collections.singletonMap(type, new FieldCapabilities(field, type, false, true, true, null, null, null, emptyMap()))
-                    );
+                    fieldCaps.put(field, Collections.singletonMap(type, new FieldCapabilitiesBuilder(field, type).build()));
                 }
 
                 // FieldCapabilitiesResponse is package private, thats why we use a mock
@@ -151,10 +150,10 @@ public class AggregationSchemaAndResultTests extends ESTestCase {
             listener -> SchemaUtil.deduceMappings(
                 client,
                 emptyMap(),
+                "my-transform",
+                SettingsConfig.EMPTY,
                 pivotConfig,
-                new String[] { "source-index" },
-                QueryBuilders.matchAllQuery(),
-                emptyMap(),
+                new SourceConfig(new String[] { "source-index" }),
                 listener
             ),
             mappings -> {
@@ -231,10 +230,10 @@ public class AggregationSchemaAndResultTests extends ESTestCase {
             listener -> SchemaUtil.deduceMappings(
                 client,
                 emptyMap(),
+                "my-transform",
+                SettingsConfig.EMPTY,
                 pivotConfig,
-                new String[] { "source-index" },
-                QueryBuilders.matchAllQuery(),
-                emptyMap(),
+                new SourceConfig(new String[] { "source-index" }),
                 listener
             ),
             mappings -> {

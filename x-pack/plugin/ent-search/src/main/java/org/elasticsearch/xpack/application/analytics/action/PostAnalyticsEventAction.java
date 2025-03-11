@@ -18,6 +18,7 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.network.NetworkAddress;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.core.Nullable;
+import org.elasticsearch.core.UpdateForV10;
 import org.elasticsearch.xcontent.ConstructingObjectParser;
 import org.elasticsearch.xcontent.ParseField;
 import org.elasticsearch.xcontent.ToXContentObject;
@@ -36,15 +37,17 @@ import java.util.Objects;
 import static org.elasticsearch.action.ValidateActions.addValidationError;
 import static org.elasticsearch.xcontent.ConstructingObjectParser.constructorArg;
 
-public class PostAnalyticsEventAction extends ActionType<PostAnalyticsEventAction.Response> {
-
-    public static final PostAnalyticsEventAction INSTANCE = new PostAnalyticsEventAction();
+/**
+ * @deprecated in 9.0
+ */
+@Deprecated
+@UpdateForV10(owner = UpdateForV10.Owner.ENTERPRISE_SEARCH)
+public class PostAnalyticsEventAction {
 
     public static final String NAME = "cluster:admin/xpack/application/analytics/post_event";
+    public static final ActionType<PostAnalyticsEventAction.Response> INSTANCE = new ActionType<>(NAME);
 
-    private PostAnalyticsEventAction() {
-        super(NAME, Response::readFromStreamInput);
-    }
+    private PostAnalyticsEventAction() {/* no instances */}
 
     public static class Request extends ActionRequest implements AnalyticsEvent.Context, ToXContentObject {
 
@@ -314,7 +317,7 @@ public class PostAnalyticsEventAction extends ActionType<PostAnalyticsEventActio
     }
 
     public static class Response extends ActionResponse implements ToXContentObject {
-        public static Response ACCEPTED = new Response(true);
+        public static final Response ACCEPTED = new Response(true);
 
         public static Response readFromStreamInput(StreamInput in) throws IOException {
             boolean accepted = in.readBoolean();

@@ -22,8 +22,10 @@ import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.indices.breaker.NoneCircuitBreakerService;
 import org.elasticsearch.mocksocket.MockSocket;
 import org.elasticsearch.tasks.TaskManager;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.telemetry.tracing.Tracer;
 import org.elasticsearch.test.ESTestCase;
+import org.elasticsearch.threadpool.DefaultBuiltInExecutorBuilders;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.RemoteClusterPortSettings;
 import org.elasticsearch.transport.RequestHandlerRegistry;
@@ -77,7 +79,7 @@ public final class SecurityNetty4HeaderSizeLimitTests extends ESTestCase {
 
     @Before
     public void startThreadPool() {
-        threadPool = new ThreadPool(settings);
+        threadPool = new ThreadPool(settings, MeterRegistry.NOOP, new DefaultBuiltInExecutorBuilders());
         TaskManager taskManager = new TaskManager(settings, threadPool, Collections.emptySet());
         NetworkService networkService = new NetworkService(Collections.emptyList());
         PageCacheRecycler recycler = new MockPageCacheRecycler(Settings.EMPTY);
@@ -136,7 +138,7 @@ public final class SecurityNetty4HeaderSizeLimitTests extends ESTestCase {
     public void testThatAcceptableHeaderSizeGoesThroughTheRemoteClusterPort() throws Exception {
         int messageLength = randomIntBetween(128, 256);
         long requestId = randomLongBetween(1L, 1000L);
-        int acceptableHeaderSize = randomIntBetween(0, maxHeaderSize - TcpHeader.headerSize(TransportVersion.current()));
+        int acceptableHeaderSize = randomIntBetween(0, maxHeaderSize - TcpHeader.HEADER_SIZE);
         try (
             ReleasableBytesStreamOutput out = new ReleasableBytesStreamOutput(
                 messageLength + TcpHeader.BYTES_REQUIRED_FOR_MESSAGE_SIZE,
@@ -161,8 +163,8 @@ public final class SecurityNetty4HeaderSizeLimitTests extends ESTestCase {
         int messageLength = randomIntBetween(128, 256);
         long requestId = randomLongBetween(1L, 1000L);
         int largeHeaderSize = randomIntBetween(
-            maxHeaderSize - TcpHeader.headerSize(TransportVersion.current()) + 1,
-            messageLength + TcpHeader.BYTES_REQUIRED_FOR_MESSAGE_SIZE - TcpHeader.headerSize(TransportVersion.current())
+            maxHeaderSize - TcpHeader.HEADER_SIZE + 1,
+            messageLength + TcpHeader.BYTES_REQUIRED_FOR_MESSAGE_SIZE - TcpHeader.HEADER_SIZE
         );
         try (
             ReleasableBytesStreamOutput out = new ReleasableBytesStreamOutput(
@@ -188,8 +190,8 @@ public final class SecurityNetty4HeaderSizeLimitTests extends ESTestCase {
         int messageLength = randomIntBetween(128, 256);
         long requestId = randomLongBetween(1L, 1000L);
         int largeHeaderSize = randomIntBetween(
-            maxHeaderSize - TcpHeader.headerSize(TransportVersion.current()) + 1,
-            messageLength + TcpHeader.BYTES_REQUIRED_FOR_MESSAGE_SIZE - TcpHeader.headerSize(TransportVersion.current())
+            maxHeaderSize - TcpHeader.HEADER_SIZE + 1,
+            messageLength + TcpHeader.BYTES_REQUIRED_FOR_MESSAGE_SIZE - TcpHeader.HEADER_SIZE
         );
         try (
             ReleasableBytesStreamOutput out = new ReleasableBytesStreamOutput(

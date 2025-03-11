@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.cluster.routing.allocation.allocator;
@@ -16,6 +17,7 @@ import org.elasticsearch.cluster.ClusterName;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.DiskUsage;
 import org.elasticsearch.cluster.ESAllocationTestCase;
+import org.elasticsearch.cluster.TestShardRoutingRoleStrategies;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
@@ -50,6 +52,7 @@ import static org.elasticsearch.cluster.metadata.IndexMetadata.INDEX_RESIZE_SOUR
 import static org.elasticsearch.cluster.routing.ShardRoutingState.INITIALIZING;
 import static org.elasticsearch.cluster.routing.ShardRoutingState.STARTED;
 import static org.elasticsearch.cluster.routing.TestShardRouting.newShardRouting;
+import static org.elasticsearch.cluster.routing.TestShardRouting.shardRoutingBuilder;
 import static org.elasticsearch.cluster.routing.allocation.decider.DiskThresholdDecider.SETTING_IGNORE_DISK_WATERMARKS;
 import static org.elasticsearch.index.IndexModule.INDEX_STORE_TYPE_SETTING;
 import static org.elasticsearch.snapshots.SearchableSnapshotsSettings.SEARCHABLE_SNAPSHOT_STORE_TYPE;
@@ -60,20 +63,21 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
 
     public void testInitializeNewPrimary() {
 
-        var newPrimary = newShardRouting(
-            new ShardId("my-index", "_na_", 0),
-            "node-0",
-            true,
-            ShardRoutingState.INITIALIZING,
-            RecoverySource.EmptyStoreRecoverySource.INSTANCE
-        );
+        var newPrimary = shardRoutingBuilder(new ShardId("my-index", "_na_", 0), "node-0", true, ShardRoutingState.INITIALIZING)
+            .withRecoverySource(RecoverySource.EmptyStoreRecoverySource.INSTANCE)
+            .build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode("node-0", new DiskUsageBuilder(1000, 1000))
             .build();
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0)).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0))))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
         var allocation = createRoutingAllocation(state, initialClusterInfo, SnapshotShardSizeInfo.EMPTY);
         var simulator = new ClusterInfoSimulator(allocation);
@@ -91,21 +95,22 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
 
     public void testInitializePreviouslyExistingPrimary() {
 
-        var existingPrimary = newShardRouting(
-            new ShardId("my-index", "_na_", 0),
-            "node-0",
-            true,
-            ShardRoutingState.INITIALIZING,
-            RecoverySource.ExistingStoreRecoverySource.INSTANCE
-        );
+        var existingPrimary = shardRoutingBuilder(new ShardId("my-index", "_na_", 0), "node-0", true, ShardRoutingState.INITIALIZING)
+            .withRecoverySource(RecoverySource.ExistingStoreRecoverySource.INSTANCE)
+            .build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode("node-0", new DiskUsageBuilder(1000, 900))
             .withShard(existingPrimary, 100)
             .build();
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0)).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0))))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
         var allocation = createRoutingAllocation(state, initialClusterInfo, SnapshotShardSizeInfo.EMPTY);
         var simulator = new ClusterInfoSimulator(allocation);
@@ -125,13 +130,9 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
     public void testInitializeNewReplica() {
 
         var existingPrimary = newShardRouting(new ShardId("my-index", "_na_", 0), "node-0", true, STARTED);
-        var newReplica = newShardRouting(
-            new ShardId("my-index", "_na_", 0),
-            "node-1",
-            false,
-            INITIALIZING,
+        var newReplica = shardRoutingBuilder(new ShardId("my-index", "_na_", 0), "node-1", false, INITIALIZING).withRecoverySource(
             RecoverySource.PeerRecoverySource.INSTANCE
-        );
+        ).build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode("node-0", new DiskUsageBuilder(1000, 900))
@@ -139,8 +140,13 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
             .withShard(existingPrimary, 100)
             .build();
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 1)).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 1))))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
         var allocation = createRoutingAllocation(state, initialClusterInfo, SnapshotShardSizeInfo.EMPTY);
         var simulator = new ClusterInfoSimulator(allocation);
@@ -167,13 +173,10 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
 
         var indexMetadata = IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 1)).build();
         var existingPrimary = newShardRouting(new ShardId(indexMetadata.getIndex(), 0), "node-0", true, STARTED);
-        var newReplica = newShardRouting(
-            new ShardId(indexMetadata.getIndex(), 0),
-            "node-1",
-            false,
-            INITIALIZING,
+        ShardId shardId = new ShardId(indexMetadata.getIndex(), 0);
+        var newReplica = shardRoutingBuilder(shardId, "node-1", false, INITIALIZING).withRecoverySource(
             RecoverySource.PeerRecoverySource.INSTANCE
-        );
+        ).build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode("node-0", new DiskUsageBuilder("/data", 1000, 1000 - totalShardSize))
@@ -211,14 +214,9 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
         var fromNodeId = "node-0";
         var toNodeId = "node-1";
 
-        var shard = newShardRouting(
-            new ShardId("my-index", "_na_", 0),
-            toNodeId,
-            fromNodeId,
-            true,
-            INITIALIZING,
-            RecoverySource.PeerRecoverySource.INSTANCE
-        );
+        var shard = shardRoutingBuilder(new ShardId("my-index", "_na_", 0), toNodeId, true, INITIALIZING).withRelocatingNodeId(fromNodeId)
+            .withRecoverySource(RecoverySource.PeerRecoverySource.INSTANCE)
+            .build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode(fromNodeId, new DiskUsageBuilder(1000, 900))
@@ -226,8 +224,13 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
             .withShard(shard, 100)
             .build();
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0)).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0))))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
         var allocation = createRoutingAllocation(state, initialClusterInfo, SnapshotShardSizeInfo.EMPTY);
         var simulator = new ClusterInfoSimulator(allocation);
@@ -250,14 +253,9 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
         var fromNodeId = "node-0";
         var toNodeId = "node-1";
 
-        var shard = newShardRouting(
-            new ShardId("my-index", "_na_", 0),
-            toNodeId,
-            fromNodeId,
-            true,
-            INITIALIZING,
-            RecoverySource.PeerRecoverySource.INSTANCE
-        );
+        var shard = shardRoutingBuilder(new ShardId("my-index", "_na_", 0), toNodeId, true, INITIALIZING).withRelocatingNodeId(fromNodeId)
+            .withRecoverySource(RecoverySource.PeerRecoverySource.INSTANCE)
+            .build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode(fromNodeId, new DiskUsageBuilder("/data-1", 1000, 500), new DiskUsageBuilder("/data-2", 1000, 750))
@@ -265,8 +263,13 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
             .withShard(shard, 100)
             .build();
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0)).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings(IndexVersion.current(), 1, 0))))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
         var allocation = createRoutingAllocation(state, initialClusterInfo, SnapshotShardSizeInfo.EMPTY);
         var simulator = new ClusterInfoSimulator(allocation);
@@ -292,19 +295,23 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
             indexSettings.put(INDEX_STORE_TYPE_SETTING.getKey(), SEARCHABLE_SNAPSHOT_STORE_TYPE);
         }
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings)))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
 
         var snapshot = new Snapshot("repository", new SnapshotId("snapshot-1", "na"));
         var indexId = new IndexId("my-index", "_na_");
-        var shard = newShardRouting(
-            new ShardId(state.metadata().index("my-index").getIndex(), 0),
+        var shard = shardRoutingBuilder(
+            new ShardId(state.metadata().getProject().index("my-index").getIndex(), 0),
             "node-0",
             true,
-            ShardRoutingState.INITIALIZING,
-            new RecoverySource.SnapshotRecoverySource(randomUUID(), snapshot, IndexVersion.current(), indexId)
-        );
+            ShardRoutingState.INITIALIZING
+        ).withRecoverySource(new RecoverySource.SnapshotRecoverySource(randomUUID(), snapshot, IndexVersion.current(), indexId)).build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode("node-0", new DiskUsageBuilder(1000, 1000))
@@ -338,19 +345,23 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
             .put(SNAPSHOT_PARTIAL_SETTING.getKey(), true)
             .put(SETTING_IGNORE_DISK_WATERMARKS.getKey(), true);
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings)))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
 
         var snapshot = new Snapshot("repository", new SnapshotId("snapshot-1", "na"));
         var indexId = new IndexId("my-index", "_na_");
-        var shard = newShardRouting(
-            new ShardId(state.metadata().index("my-index").getIndex(), 0),
+        var shard = shardRoutingBuilder(
+            new ShardId(state.metadata().getProject().index("my-index").getIndex(), 0),
             "node-0",
             true,
-            ShardRoutingState.INITIALIZING,
-            new RecoverySource.SnapshotRecoverySource(randomUUID(), snapshot, IndexVersion.current(), indexId)
-        );
+            ShardRoutingState.INITIALIZING
+        ).withRecoverySource(new RecoverySource.SnapshotRecoverySource(randomUUID(), snapshot, IndexVersion.current(), indexId)).build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode("node-0", new DiskUsageBuilder(1000, 1000))
@@ -384,8 +395,13 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
             .put(SNAPSHOT_PARTIAL_SETTING.getKey(), true)
             .put(SETTING_IGNORE_DISK_WATERMARKS.getKey(), true);
 
+        final IndexMetadata index = IndexMetadata.builder("my-index").settings(indexSettings).build();
+        final RoutingTable projectRoutingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
+            .addAsNew(index)
+            .build();
         var state = ClusterState.builder(ClusterName.DEFAULT)
-            .metadata(Metadata.builder().put(IndexMetadata.builder("my-index").settings(indexSettings)))
+            .metadata(Metadata.builder().put(index, false))
+            .routingTable(projectRoutingTable)
             .build();
 
         var snapshot = new Snapshot("repository", new SnapshotId("snapshot-1", "na"));
@@ -394,14 +410,9 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
         var fromNodeId = "node-0";
         var toNodeId = "node-1";
 
-        var shard = newShardRouting(
-            new ShardId("my-index", "_na_", 0),
-            toNodeId,
-            fromNodeId,
-            true,
-            INITIALIZING,
-            RecoverySource.PeerRecoverySource.INSTANCE
-        );
+        var shard = shardRoutingBuilder(new ShardId("my-index", "_na_", 0), toNodeId, true, INITIALIZING).withRelocatingNodeId(fromNodeId)
+            .withRecoverySource(RecoverySource.PeerRecoverySource.INSTANCE)
+            .build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder() //
             .withNode(fromNodeId, new DiskUsageBuilder(1000, 1000))
@@ -432,13 +443,9 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
 
         var sourceShardSize = randomLongBetween(100, 1000);
         var source = newShardRouting(new ShardId("source", "_na_", 0), randomIdentifier(), true, ShardRoutingState.STARTED);
-        var target = newShardRouting(
-            new ShardId("target", "_na_", 0),
-            randomIdentifier(),
-            true,
-            ShardRoutingState.INITIALIZING,
-            RecoverySource.LocalShardsRecoverySource.INSTANCE
-        );
+        var target = shardRoutingBuilder(new ShardId("target", "_na_", 0), randomIdentifier(), true, ShardRoutingState.INITIALIZING)
+            .withRecoverySource(RecoverySource.LocalShardsRecoverySource.INSTANCE)
+            .build();
 
         var state = ClusterState.builder(ClusterName.DEFAULT)
             .metadata(
@@ -453,7 +460,11 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
                             )
                     )
             )
-            .routingTable(RoutingTable.builder().add(IndexRoutingTable.builder(source.index()).addShard(source)))
+            .routingTable(
+                RoutingTable.builder()
+                    .add(IndexRoutingTable.builder(source.index()).addShard(source))
+                    .add(IndexRoutingTable.builder(target.index()).addShard(target))
+            )
             .build();
 
         var initialClusterInfo = new ClusterInfoTestBuilder().withNode("node-0", new DiskUsageBuilder(1000, 1000 - sourceShardSize))
@@ -486,14 +497,9 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
         var shard1 = newShardRouting("index-1", 0, "node-0", null, true, STARTED);
         addIndex(metadataBuilder, routingTableBuilder, shard1);
 
-        var shard2 = newShardRouting(
-            new ShardId("index-2", "_na_", 0),
-            "node-0",
-            "node-1",
-            true,
-            INITIALIZING,
-            RecoverySource.PeerRecoverySource.INSTANCE
-        );
+        var shard2 = shardRoutingBuilder(new ShardId("index-2", "_na_", 0), "node-0", true, INITIALIZING).withRelocatingNodeId("node-1")
+            .withRecoverySource(RecoverySource.PeerRecoverySource.INSTANCE)
+            .build();
         addIndex(metadataBuilder, routingTableBuilder, shard2);
 
         var shard3 = newShardRouting("index-3", 0, "node-1", null, true, STARTED);
@@ -535,12 +541,14 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
 
         assertThat(
             "Should keep index-1 on node-0",
-            decider.canRemain(state.metadata().index("index-1"), shard1, allocation.routingNodes().node("node-0"), allocation).type(),
+            decider.canRemain(state.metadata().getProject().index("index-1"), shard1, allocation.routingNodes().node("node-0"), allocation)
+                .type(),
             equalTo(Decision.Type.YES)
         );
         assertThat(
             "Should keep index-2 on node-0",
-            decider.canRemain(state.metadata().index("index-2"), shard2, allocation.routingNodes().node("node-0"), allocation).type(),
+            decider.canRemain(state.metadata().getProject().index("index-2"), shard2, allocation.routingNodes().node("node-0"), allocation)
+                .type(),
             equalTo(Decision.Type.YES)
         );
         assertThat(
@@ -560,14 +568,9 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
         var shard1 = newShardRouting("index-1", 0, "node-0", null, true, STARTED);
         addIndex(metadataBuilder, routingTableBuilder, shard1);
 
-        var shard2 = newShardRouting(
-            new ShardId("index-2", "_na_", 0),
-            "node-0",
-            "node-1",
-            true,
-            INITIALIZING,
-            RecoverySource.PeerRecoverySource.INSTANCE
-        );
+        var shard2 = shardRoutingBuilder(new ShardId("index-2", "_na_", 0), "node-0", true, INITIALIZING).withRelocatingNodeId("node-1")
+            .withRecoverySource(RecoverySource.PeerRecoverySource.INSTANCE)
+            .build();
         addIndex(metadataBuilder, routingTableBuilder, shard2);
 
         var shard3 = newShardRouting("index-3", 0, "node-1", null, true, STARTED);
@@ -609,13 +612,15 @@ public class ClusterInfoSimulatorTests extends ESAllocationTestCase {
 
         assertThat(
             "Should keep index-1 on node-0",
-            decider.canRemain(state.metadata().index("index-1"), shard1, allocation.routingNodes().node("node-0"), allocation).type(),
+            decider.canRemain(state.metadata().getProject().index("index-1"), shard1, allocation.routingNodes().node("node-0"), allocation)
+                .type(),
             equalTo(Decision.Type.YES)
         );
 
         assertThat(
             "Should keep index-2 on node-0",
-            decider.canRemain(state.metadata().index("index-2"), shard2, allocation.routingNodes().node("node-0"), allocation).type(),
+            decider.canRemain(state.metadata().getProject().index("index-2"), shard2, allocation.routingNodes().node("node-0"), allocation)
+                .type(),
             equalTo(Decision.Type.YES)
         );
 

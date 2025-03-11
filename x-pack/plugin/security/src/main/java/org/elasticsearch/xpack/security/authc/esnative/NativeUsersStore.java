@@ -18,6 +18,7 @@ import org.elasticsearch.action.delete.DeleteResponse;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.search.TransportSearchAction;
 import org.elasticsearch.action.support.ContextPreservingActionListener;
 import org.elasticsearch.action.support.TransportActions;
 import org.elasticsearch.action.support.WriteRequest.RefreshPolicy;
@@ -50,6 +51,7 @@ import org.elasticsearch.xpack.core.security.user.ElasticUser;
 import org.elasticsearch.xpack.core.security.user.User;
 import org.elasticsearch.xpack.core.security.user.User.Fields;
 import org.elasticsearch.xpack.security.support.SecurityIndexManager;
+import org.elasticsearch.xpack.security.support.SecurityIndexManager.IndexState;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -57,6 +59,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -77,7 +80,7 @@ import static org.elasticsearch.xpack.security.support.SecuritySystemIndices.SEC
  */
 public class NativeUsersStore {
 
-    static final String USER_DOC_TYPE = "user";
+    public static final String USER_DOC_TYPE = "user";
     public static final String RESERVED_USER_TYPE = "reserved-user";
     private static final Logger logger = LogManager.getLogger(NativeUsersStore.class);
 
@@ -120,11 +123,11 @@ public class NativeUsersStore {
             listener.onFailure(t);
         };
 
-        final SecurityIndexManager frozenSecurityIndex = this.securityIndex.defensiveCopy();
-        if (frozenSecurityIndex.indexExists() == false) {
+        final IndexState projectSecurityIndex = this.securityIndex.forCurrentProject();
+        if (projectSecurityIndex.indexExists() == false) {
             listener.onResponse(Collections.emptyList());
-        } else if (frozenSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
-            listener.onFailure(frozenSecurityIndex.getUnavailableReason(PRIMARY_SHARDS));
+        } else if (projectSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
+            listener.onFailure(projectSecurityIndex.getUnavailableReason(PRIMARY_SHARDS));
         } else if (userNames.length == 1) { // optimization for single user lookup
             final String username = userNames[0];
             getUserAndPassword(
@@ -135,7 +138,7 @@ public class NativeUsersStore {
                 )
             );
         } else {
-            securityIndex.checkIndexVersionThenExecute(listener::onFailure, () -> {
+            projectSecurityIndex.checkIndexVersionThenExecute(listener::onFailure, () -> {
                 final QueryBuilder query;
                 if (userNames == null || userNames.length == 0) {
                     query = QueryBuilders.termQuery(Fields.TYPE.getPreferredName(), USER_DOC_TYPE);
@@ -161,14 +164,48 @@ public class NativeUsersStore {
         }
     }
 
-    void getUserCount(final ActionListener<Long> listener) {
-        final SecurityIndexManager frozenSecurityIndex = this.securityIndex.defensiveCopy();
-        if (frozenSecurityIndex.indexExists() == false) {
-            listener.onResponse(0L);
-        } else if (frozenSecurityIndex.isAvailable(SEARCH_SHARDS) == false) {
-            listener.onFailure(frozenSecurityIndex.getUnavailableReason(SEARCH_SHARDS));
+    public void queryUsers(SearchRequest searchRequest, ActionListener<QueryUserResults> listener) {
+        final IndexState projectSecurityIndex = securityIndex.forCurrentProject();
+        if (projectSecurityIndex.indexExists() == false) {
+            logger.debug("security index does not exist");
+            listener.onResponse(QueryUserResults.EMPTY);
+        } else if (projectSecurityIndex.isAvailable(SEARCH_SHARDS) == false) {
+            listener.onFailure(projectSecurityIndex.getUnavailableReason(SEARCH_SHARDS));
         } else {
-            securityIndex.checkIndexVersionThenExecute(
+            projectSecurityIndex.checkIndexVersionThenExecute(
+                listener::onFailure,
+                () -> executeAsyncWithOrigin(
+                    client,
+                    SECURITY_ORIGIN,
+                    TransportSearchAction.TYPE,
+                    searchRequest,
+                    ActionListener.wrap(searchResponse -> {
+                        final long total = searchResponse.getHits().getTotalHits().value();
+                        if (total == 0) {
+                            logger.debug("No users found for query [{}]", searchRequest.source().query());
+                            listener.onResponse(QueryUserResults.EMPTY);
+                            return;
+                        }
+
+                        final List<QueryUserResult> userItems = Arrays.stream(searchResponse.getHits().getHits()).map(hit -> {
+                            UserAndPassword userAndPassword = transformUser(hit.getId(), hit.getSourceAsMap());
+                            return userAndPassword != null ? new QueryUserResult(userAndPassword.user(), hit.getSortValues()) : null;
+                        }).filter(Objects::nonNull).toList();
+                        listener.onResponse(new QueryUserResults(userItems, total));
+                    }, listener::onFailure)
+                )
+            );
+        }
+    }
+
+    void getUserCount(final ActionListener<Long> listener) {
+        final IndexState projectSecurityIndex = this.securityIndex.forCurrentProject();
+        if (projectSecurityIndex.indexExists() == false) {
+            listener.onResponse(0L);
+        } else if (projectSecurityIndex.isAvailable(SEARCH_SHARDS) == false) {
+            listener.onFailure(projectSecurityIndex.getUnavailableReason(SEARCH_SHARDS));
+        } else {
+            projectSecurityIndex.checkIndexVersionThenExecute(
                 listener::onFailure,
                 () -> executeAsyncWithOrigin(
                     client.threadPool().getThreadContext(),
@@ -178,7 +215,7 @@ public class NativeUsersStore {
                         .setSize(0)
                         .setTrackTotalHits(true)
                         .request(),
-                    listener.<SearchResponse>safeMap(response -> response.getHits().getTotalHits().value),
+                    listener.<SearchResponse>safeMap(response -> response.getHits().getTotalHits().value()),
                     client::search
                 )
             );
@@ -189,16 +226,16 @@ public class NativeUsersStore {
      * Async method to retrieve a user and their password
      */
     private void getUserAndPassword(final String user, final ActionListener<UserAndPassword> listener) {
-        final SecurityIndexManager frozenSecurityIndex = securityIndex.defensiveCopy();
-        if (frozenSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
-            if (frozenSecurityIndex.indexExists() == false) {
+        final IndexState projectSecurityIndex = securityIndex.forCurrentProject();
+        if (projectSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
+            if (projectSecurityIndex.indexExists() == false) {
                 logger.trace("could not retrieve user [{}] because security index does not exist", user);
             } else {
-                logger.error("security index is unavailable. short circuiting retrieval of user [{}]", user);
+                logger.warn("could not retrieve user [{}] because security index is not available", user);
             }
             listener.onResponse(null);
         } else {
-            securityIndex.checkIndexVersionThenExecute(
+            projectSecurityIndex.checkIndexVersionThenExecute(
                 listener::onFailure,
                 () -> executeAsyncWithOrigin(
                     client.threadPool().getThreadContext(),
@@ -249,7 +286,7 @@ public class NativeUsersStore {
             docType = USER_DOC_TYPE;
         }
 
-        securityIndex.prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
+        securityIndex.forCurrentProject().prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
             executeAsyncWithOrigin(
                 client.threadPool().getThreadContext(),
                 SECURITY_ORIGIN,
@@ -311,7 +348,7 @@ public class NativeUsersStore {
         RefreshPolicy refresh,
         ActionListener<Void> listener
     ) {
-        securityIndex.prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
+        securityIndex.forCurrentProject().prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
             executeAsyncWithOrigin(
                 client.threadPool().getThreadContext(),
                 SECURITY_ORIGIN,
@@ -354,7 +391,7 @@ public class NativeUsersStore {
     private void updateUserWithoutPassword(final PutUserRequest putUserRequest, final ActionListener<Boolean> listener) {
         assert putUserRequest.passwordHash() == null;
         // We must have an existing document
-        securityIndex.prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
+        securityIndex.forCurrentProject().prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
             executeAsyncWithOrigin(
                 client.threadPool().getThreadContext(),
                 SECURITY_ORIGIN,
@@ -408,7 +445,7 @@ public class NativeUsersStore {
 
     private void indexUser(final PutUserRequest putUserRequest, final ActionListener<Boolean> listener) {
         assert putUserRequest.passwordHash() != null;
-        securityIndex.prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
+        securityIndex.forCurrentProject().prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
             executeAsyncWithOrigin(
                 client.threadPool().getThreadContext(),
                 SECURITY_ORIGIN,
@@ -469,7 +506,7 @@ public class NativeUsersStore {
         final RefreshPolicy refreshPolicy,
         final ActionListener<Void> listener
     ) {
-        securityIndex.prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
+        securityIndex.forCurrentProject().prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
             executeAsyncWithOrigin(
                 client.threadPool().getThreadContext(),
                 SECURITY_ORIGIN,
@@ -509,7 +546,7 @@ public class NativeUsersStore {
         boolean clearCache,
         final ActionListener<Void> listener
     ) {
-        securityIndex.prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
+        securityIndex.forCurrentProject().prepareIndexIfNeededThenExecute(listener::onFailure, () -> {
             executeAsyncWithOrigin(
                 client.threadPool().getThreadContext(),
                 SECURITY_ORIGIN,
@@ -539,13 +576,13 @@ public class NativeUsersStore {
     }
 
     public void deleteUser(final DeleteUserRequest deleteUserRequest, final ActionListener<Boolean> listener) {
-        final SecurityIndexManager frozenSecurityIndex = securityIndex.defensiveCopy();
-        if (frozenSecurityIndex.indexExists() == false) {
+        final IndexState projectSecurityIndex = securityIndex.forCurrentProject();
+        if (projectSecurityIndex.indexExists() == false) {
             listener.onResponse(false);
-        } else if (frozenSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
-            listener.onFailure(frozenSecurityIndex.getUnavailableReason(PRIMARY_SHARDS));
+        } else if (projectSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
+            listener.onFailure(projectSecurityIndex.getUnavailableReason(PRIMARY_SHARDS));
         } else {
-            securityIndex.checkIndexVersionThenExecute(listener::onFailure, () -> {
+            projectSecurityIndex.checkIndexVersionThenExecute(listener::onFailure, () -> {
                 DeleteRequest request = client.prepareDelete(SECURITY_MAIN_ALIAS, getIdForUser(USER_DOC_TYPE, deleteUserRequest.username()))
                     .request();
                 request.setRefreshPolicy(deleteUserRequest.getRefreshPolicy());
@@ -597,13 +634,13 @@ public class NativeUsersStore {
     }
 
     void getReservedUserInfo(String username, ActionListener<ReservedUserInfo> listener) {
-        final SecurityIndexManager frozenSecurityIndex = securityIndex.defensiveCopy();
-        if (frozenSecurityIndex.indexExists() == false) {
+        final IndexState projectSecurityIndex = securityIndex.forCurrentProject();
+        if (projectSecurityIndex.indexExists() == false) {
             listener.onResponse(null);
-        } else if (frozenSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
-            listener.onFailure(frozenSecurityIndex.getUnavailableReason(PRIMARY_SHARDS));
+        } else if (projectSecurityIndex.isAvailable(PRIMARY_SHARDS) == false) {
+            listener.onFailure(projectSecurityIndex.getUnavailableReason(PRIMARY_SHARDS));
         } else {
-            securityIndex.checkIndexVersionThenExecute(
+            projectSecurityIndex.checkIndexVersionThenExecute(
                 listener::onFailure,
                 () -> executeAsyncWithOrigin(
                     client.threadPool().getThreadContext(),
@@ -650,13 +687,13 @@ public class NativeUsersStore {
     }
 
     void getAllReservedUserInfo(ActionListener<Map<String, ReservedUserInfo>> listener) {
-        final SecurityIndexManager frozenSecurityIndex = securityIndex.defensiveCopy();
-        if (frozenSecurityIndex.indexExists() == false) {
+        final IndexState projectSecurityIndex = securityIndex.forCurrentProject();
+        if (projectSecurityIndex.indexExists() == false) {
             listener.onResponse(Collections.emptyMap());
-        } else if (frozenSecurityIndex.isAvailable(SEARCH_SHARDS) == false) {
-            listener.onFailure(frozenSecurityIndex.getUnavailableReason(SEARCH_SHARDS));
+        } else if (projectSecurityIndex.isAvailable(SEARCH_SHARDS) == false) {
+            listener.onFailure(projectSecurityIndex.getUnavailableReason(SEARCH_SHARDS));
         } else {
-            securityIndex.checkIndexVersionThenExecute(
+            projectSecurityIndex.checkIndexVersionThenExecute(
                 listener::onFailure,
                 () -> executeAsyncWithOrigin(
                     client.threadPool().getThreadContext(),
@@ -670,7 +707,7 @@ public class NativeUsersStore {
                         @Override
                         public void onResponse(SearchResponse searchResponse) {
                             Map<String, ReservedUserInfo> userInfos = new HashMap<>();
-                            assert searchResponse.getHits().getTotalHits().value <= 10
+                            assert searchResponse.getHits().getTotalHits().value() <= 10
                                 : "there are more than 10 reserved users we need to change this to retrieve them all!";
                             for (SearchHit searchHit : searchResponse.getHits().getHits()) {
                                 Map<String, Object> sourceMap = searchHit.getSourceAsMap();
@@ -801,5 +838,17 @@ public class NativeUsersStore {
         static ReservedUserInfo defaultDisabledUserInfo() {
             return new ReservedUserInfo(new char[0], false);
         }
+    }
+
+    /**
+     * Result record for every document matching a user
+     */
+    public record QueryUserResult(User user, Object[] sortValues) {}
+
+    /**
+     * Total result for a Query User query
+     */
+    public record QueryUserResults(List<QueryUserResult> userQueryResult, long total) {
+        public static final QueryUserResults EMPTY = new QueryUserResults(List.of(), 0);
     }
 }

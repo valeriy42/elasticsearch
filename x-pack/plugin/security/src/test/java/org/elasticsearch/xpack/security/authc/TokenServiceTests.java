@@ -62,10 +62,12 @@ import org.elasticsearch.node.Node;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.test.ClusterServiceUtils;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.EqualsHashCodeTestUtils;
 import org.elasticsearch.test.XContentTestUtils;
+import org.elasticsearch.threadpool.DefaultBuiltInExecutorBuilders;
 import org.elasticsearch.threadpool.FixedExecutorBuilder;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.ToXContent;
@@ -84,6 +86,7 @@ import org.elasticsearch.xpack.security.Security;
 import org.elasticsearch.xpack.security.authc.TokenService.RefreshTokenStatus;
 import org.elasticsearch.xpack.security.support.FeatureNotEnabledException;
 import org.elasticsearch.xpack.security.support.SecurityIndexManager;
+import org.elasticsearch.xpack.security.support.SecurityIndexManager.IndexState;
 import org.elasticsearch.xpack.security.test.SecurityMocks;
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -103,6 +106,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import javax.crypto.SecretKey;
 
@@ -136,6 +140,7 @@ import static org.mockito.Mockito.when;
 public class TokenServiceTests extends ESTestCase {
 
     private static ThreadPool threadPool;
+    private static ThreadContext.StoredContext defaultContext;
     private static final Settings settings = Settings.builder()
         .put(Node.NODE_NAME_SETTING.getKey(), "TokenServiceTests")
         .put(XPackSettings.TOKEN_SERVICE_ENABLED_SETTING.getKey(), true)
@@ -215,7 +220,11 @@ public class TokenServiceTests extends ESTestCase {
         // setup lifecycle service
         this.securityMainIndex = SecurityMocks.mockSecurityIndexManager();
         this.securityTokensIndex = SecurityMocks.mockSecurityIndexManager();
-        this.clusterService = ClusterServiceUtils.createClusterService(threadPool);
+
+        try (var ignored = threadPool.getThreadContext().newStoredContext()) {
+            defaultContext.restore();
+            this.clusterService = ClusterServiceUtils.createClusterService(threadPool);
+        }
 
         // License state (enabled by default)
         licenseState = mock(MockLicenseState.class);
@@ -254,7 +263,7 @@ public class TokenServiceTests extends ESTestCase {
             transportVersion = TransportVersions.V_8_8_1;
         } else {
             version = Version.V_8_9_0;
-            transportVersion = TransportVersions.V_8_500_020;
+            transportVersion = TransportVersions.V_8_9_X;
         }
         return addAnotherDataNodeWithVersion(clusterService, version, transportVersion);
     }
@@ -269,6 +278,8 @@ public class TokenServiceTests extends ESTestCase {
     public static void startThreadPool() throws IOException {
         threadPool = new ThreadPool(
             settings,
+            MeterRegistry.NOOP,
+            new DefaultBuiltInExecutorBuilders(),
             new FixedExecutorBuilder(
                 settings,
                 TokenService.THREAD_POOL_NAME,
@@ -278,6 +289,7 @@ public class TokenServiceTests extends ESTestCase {
                 EsExecutors.TaskTrackingConfig.DO_NOT_TRACK
             )
         );
+        defaultContext = threadPool.getThreadContext().newStoredContext();
         AuthenticationTestHelper.builder()
             .user(new User("foo"))
             .realmRef(new RealmRef("realm", "type", "node"))
@@ -438,7 +450,8 @@ public class TokenServiceTests extends ESTestCase {
     }
 
     public void testAuthnWithInvalidatedToken() throws Exception {
-        when(securityMainIndex.indexExists()).thenReturn(true);
+        IndexState projectIndex = securityMainIndex.forCurrentProject();
+        when(projectIndex.indexExists()).thenReturn(true);
         TokenService tokenService = createTokenService(tokenServiceEnabledSettings, systemUTC());
         Authentication authentication = AuthenticationTestHelper.builder()
             .user(new User("joe", "admin"))
@@ -467,7 +480,8 @@ public class TokenServiceTests extends ESTestCase {
     }
 
     public void testInvalidateRefreshToken() throws Exception {
-        when(securityMainIndex.indexExists()).thenReturn(true);
+        IndexState projectIndex = securityMainIndex.forCurrentProject();
+        when(projectIndex.indexExists()).thenReturn(true);
         TokenService tokenService = createTokenService(tokenServiceEnabledSettings, systemUTC());
         Authentication authentication = AuthenticationTestHelper.builder()
             .user(new User("joe", "admin"))
@@ -476,8 +490,9 @@ public class TokenServiceTests extends ESTestCase {
         PlainActionFuture<TokenService.CreateTokenResult> tokenFuture = new PlainActionFuture<>();
         Tuple<byte[], byte[]> newTokenBytes = tokenService.getRandomTokenBytes(true);
         tokenService.createOAuth2Tokens(newTokenBytes.v1(), newTokenBytes.v2(), authentication, authentication, Map.of(), tokenFuture);
-        final String accessToken = tokenFuture.get().getAccessToken();
-        final String clientRefreshToken = tokenFuture.get().getRefreshToken();
+        final TokenService.CreateTokenResult tokenResult = tokenFuture.get(180, TimeUnit.SECONDS);
+        final String accessToken = tokenResult.getAccessToken();
+        final String clientRefreshToken = tokenResult.getRefreshToken();
         assertNotNull(accessToken);
         assertNotNull(clientRefreshToken);
         mockTokenForRefreshToken(newTokenBytes.v1(), newTokenBytes.v2(), tokenService, authentication, null);
@@ -501,7 +516,8 @@ public class TokenServiceTests extends ESTestCase {
     }
 
     public void testInvalidateRefreshTokenThatIsAlreadyInvalidated() throws Exception {
-        when(securityMainIndex.indexExists()).thenReturn(true);
+        IndexState projectIndex = securityMainIndex.forCurrentProject();
+        when(projectIndex.indexExists()).thenReturn(true);
         TokenService tokenService = createTokenService(tokenServiceEnabledSettings, systemUTC());
         Authentication authentication = AuthenticationTests.randomAuthentication(null, null);
         PlainActionFuture<TokenService.CreateTokenResult> tokenFuture = new PlainActionFuture<>();
@@ -918,39 +934,41 @@ public class TokenServiceTests extends ESTestCase {
         final SecurityIndexManager tokensIndex;
         if (pre72OldNode != null) {
             tokensIndex = securityMainIndex;
-            when(securityTokensIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(false);
-            when(securityTokensIndex.indexExists()).thenReturn(false);
-            when(securityTokensIndex.defensiveCopy()).thenReturn(securityTokensIndex);
+            final IndexState projectTokenIndex = securityTokensIndex.forCurrentProject();
+            when(projectTokenIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(false);
+            when(projectTokenIndex.indexExists()).thenReturn(false);
         } else {
             tokensIndex = securityTokensIndex;
-            when(securityMainIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(false);
-            when(securityMainIndex.indexExists()).thenReturn(false);
-            when(securityMainIndex.defensiveCopy()).thenReturn(securityMainIndex);
+            final IndexState projectMainIndex = securityMainIndex.forCurrentProject();
+            when(projectMainIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(false);
+            when(projectMainIndex.indexExists()).thenReturn(false);
         }
+
+        IndexState projectIndex = tokensIndex.forCurrentProject();
         try (ThreadContext.StoredContext ignore = requestContext.newStoredContextPreservingResponseHeaders()) {
             PlainActionFuture<UserToken> future = new PlainActionFuture<>();
             final SecureString bearerToken3 = Authenticator.extractBearerTokenFromHeader(requestContext);
             tokenService.tryAuthenticateToken(bearerToken3, future);
             assertNull(future.get());
 
-            when(tokensIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(false);
-            when(tokensIndex.getUnavailableReason(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(
+            when(projectIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(false);
+            when(projectIndex.getUnavailableReason(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(
                 new UnavailableShardsException(null, "unavailable")
             );
-            when(tokensIndex.indexExists()).thenReturn(true);
+            when(projectIndex.indexExists()).thenReturn(true);
             future = new PlainActionFuture<>();
             final SecureString bearerToken2 = Authenticator.extractBearerTokenFromHeader(requestContext);
             tokenService.tryAuthenticateToken(bearerToken2, future);
             assertNull(future.get());
 
-            when(tokensIndex.indexExists()).thenReturn(false);
+            when(projectIndex.indexExists()).thenReturn(false);
             future = new PlainActionFuture<>();
             final SecureString bearerToken1 = Authenticator.extractBearerTokenFromHeader(requestContext);
             tokenService.tryAuthenticateToken(bearerToken1, future);
             assertNull(future.get());
 
-            when(tokensIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(true);
-            when(tokensIndex.indexExists()).thenReturn(true);
+            when(projectIndex.isAvailable(SecurityIndexManager.Availability.PRIMARY_SHARDS)).thenReturn(true);
+            when(projectIndex.indexExists()).thenReturn(true);
             mockGetTokenFromAccessTokenBytes(tokenService, newTokenBytes.v1(), authentication, false, null);
             future = new PlainActionFuture<>();
             final SecureString bearerToken = Authenticator.extractBearerTokenFromHeader(requestContext);
@@ -1235,9 +1253,9 @@ public class TokenServiceTests extends ESTestCase {
                 assertThat(refreshFilter.fieldName(), is("refresh_token.token"));
                 final SearchHits hits;
                 if (storedRefreshToken.equals(refreshFilter.value())) {
-                    SearchHit hit = new SearchHit(randomInt(), "token_" + userToken.getId());
+                    SearchHit hit = SearchHit.unpooled(randomInt(), "token_" + userToken.getId());
                     hit.sourceRef(docSource);
-                    hits = new SearchHits(new SearchHit[] { hit }, null, 1);
+                    hits = SearchHits.unpooled(new SearchHit[] { hit }, null, 1);
                 } else {
                     hits = SearchHits.EMPTY_WITH_TOTAL_HITS;
                 }

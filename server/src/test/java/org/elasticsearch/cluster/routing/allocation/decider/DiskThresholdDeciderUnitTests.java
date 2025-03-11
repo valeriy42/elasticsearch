@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.cluster.routing.allocation.decider;
@@ -51,7 +52,7 @@ import java.util.Map;
 import static java.util.Collections.emptySet;
 import static org.elasticsearch.cluster.ClusterInfo.shardIdentifierFromRouting;
 import static org.elasticsearch.cluster.routing.ExpectedShardSizeEstimator.getExpectedShardSize;
-import static org.elasticsearch.cluster.routing.TestShardRouting.newShardRouting;
+import static org.elasticsearch.cluster.routing.TestShardRouting.shardRoutingBuilder;
 import static org.elasticsearch.index.IndexModule.INDEX_STORE_TYPE_SETTING;
 import static org.elasticsearch.snapshots.SearchableSnapshotsSettings.SEARCHABLE_SNAPSHOT_STORE_TYPE;
 import static org.hamcrest.Matchers.containsString;
@@ -70,7 +71,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
             .put(IndexMetadata.builder("test").settings(settings(IndexVersion.current())).numberOfShards(1).numberOfReplicas(1))
             .build();
 
-        final Index index = metadata.index("test").getIndex();
+        final Index index = metadata.getProject().index("test").getIndex();
 
         ShardRouting test_0 = ShardRouting.newUnassigned(
             new ShardId(index, 0),
@@ -83,7 +84,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         DiscoveryNode node_1 = DiscoveryNodeUtils.builder("node_1").roles(new HashSet<>(DiscoveryNodeRole.roles())).build();
 
         RoutingTable routingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
-            .addAsNew(metadata.index("test"))
+            .addAsNew(metadata.getProject().index("test"))
             .build();
 
         ClusterState clusterState = ClusterState.builder(ClusterName.DEFAULT).metadata(metadata).routingTable(routingTable).build();
@@ -139,7 +140,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
             .put(IndexMetadata.builder("test").settings(settings(IndexVersion.current())).numberOfShards(1).numberOfReplicas(1))
             .build();
 
-        final Index index = metadata.index("test").getIndex();
+        final Index index = metadata.getProject().index("test").getIndex();
 
         ShardRouting test_0 = ShardRouting.newUnassigned(
             new ShardId(index, 0),
@@ -152,7 +153,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         DiscoveryNode node_1 = DiscoveryNodeUtils.builder("node_1").roles(new HashSet<>(DiscoveryNodeRole.roles())).build();
 
         RoutingTable routingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
-            .addAsNew(metadata.index("test"))
+            .addAsNew(metadata.getProject().index("test"))
             .build();
 
         ClusterState clusterState = ClusterState.builder(ClusterName.DEFAULT).metadata(metadata).routingTable(routingTable).build();
@@ -240,7 +241,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         Metadata metadata = Metadata.builder()
             .put(IndexMetadata.builder("test").settings(settings(IndexVersion.current())).numberOfShards(1).numberOfReplicas(1))
             .build();
-        final IndexMetadata indexMetadata = metadata.index("test");
+        final IndexMetadata indexMetadata = metadata.getProject().index("test");
 
         ShardRouting test_0 = ShardRouting.newUnassigned(
             new ShardId(indexMetadata.getIndex(), 0),
@@ -419,8 +420,8 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         );
         Metadata metadata = metaBuilder.build();
         RoutingTable.Builder routingTableBuilder = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY);
-        routingTableBuilder.addAsNew(metadata.index("test"));
-        routingTableBuilder.addAsNew(metadata.index("other"));
+        routingTableBuilder.addAsNew(metadata.getProject().index("test"));
+        routingTableBuilder.addAsNew(metadata.getProject().index("other"));
         ClusterState clusterState = ClusterState.builder(ClusterName.DEFAULT)
             .metadata(metadata)
             .routingTable(routingTableBuilder.build())
@@ -527,13 +528,12 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         for (int i = 0; i < searchableSnapshotIndex.getNumberOfShards(); i++) {
             long expectedSize = randomLongBetween(10, 50);
             // a searchable snapshot shard without corresponding entry in cluster info
-            ShardRouting startedShardWithExpectedSize = newShardRouting(
+            ShardRouting startedShardWithExpectedSize = shardRoutingBuilder(
                 new ShardId(searchableSnapshotIndex.getIndex(), i),
                 nodeId,
                 true,
-                ShardRoutingState.STARTED,
-                expectedSize
-            );
+                ShardRoutingState.STARTED
+            ).withExpectedShardSize(expectedSize).build();
             searchableSnapshotIndexRoutingTableBuilder.addShard(startedShardWithExpectedSize);
             unaccountedSearchableSnapshotSizes += expectedSize;
         }
@@ -541,13 +541,12 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         for (int i = 0; i < searchableSnapshotIndex.getNumberOfShards(); i++) {
             var shardSize = randomLongBetween(10, 50);
             // a shard relocating to this node
-            ShardRouting initializingShard = newShardRouting(
+            ShardRouting initializingShard = shardRoutingBuilder(
                 new ShardId(regularIndex.getIndex(), i),
                 nodeId,
                 true,
-                ShardRoutingState.INITIALIZING,
-                PeerRecoverySource.INSTANCE
-            );
+                ShardRoutingState.INITIALIZING
+            ).withRecoverySource(PeerRecoverySource.INSTANCE).build();
             regularIndexRoutingTableBuilder.addShard(initializingShard);
             knownShardSizes.put(shardIdentifierFromRouting(initializingShard), shardSize);
             relocatingShardsSizes += shardSize;
@@ -593,7 +592,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
             allocation.clusterInfo(),
             allocation.snapshotShardSizeInfo(),
             allocation.metadata(),
-            allocation.routingTable(),
+            allocation.globalRoutingTable(),
             allocation.unaccountedSearchableSnapshotSize(node)
         );
     }
@@ -635,9 +634,9 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         );
         Metadata metadata = metaBuilder.build();
         RoutingTable.Builder routingTableBuilder = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY);
-        routingTableBuilder.addAsNew(metadata.index("test"));
-        routingTableBuilder.addAsNew(metadata.index("target"));
-        routingTableBuilder.addAsNew(metadata.index("target2"));
+        routingTableBuilder.addAsNew(metadata.getProject().index("test"));
+        routingTableBuilder.addAsNew(metadata.getProject().index("target"));
+        routingTableBuilder.addAsNew(metadata.getProject().index("target2"));
         ClusterState clusterState = ClusterState.builder(ClusterName.DEFAULT)
             .metadata(metadata)
             .routingTable(routingTableBuilder.build())
@@ -813,7 +812,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
             )
             .build();
 
-        final Index index = metadata.index("test").getIndex();
+        final Index index = metadata.getProject().index("test").getIndex();
 
         ShardRouting test_0 = ShardRouting.newUnassigned(
             new ShardId(index, 0),
@@ -826,7 +825,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         DiscoveryNode node_1 = DiscoveryNodeUtils.builder("node_1").roles(new HashSet<>(DiscoveryNodeRole.roles())).build();
 
         RoutingTable routingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
-            .addAsNew(metadata.index("test"))
+            .addAsNew(metadata.getProject().index("test"))
             .build();
 
         ClusterState clusterState = ClusterState.builder(ClusterName.DEFAULT).metadata(metadata).routingTable(routingTable).build();
@@ -860,7 +859,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         assertThat(decision.getExplanation(), containsString("disk watermarks are ignored on this index"));
 
         decision = decider.canRemain(
-            metadata.getIndexSafe(test_0.index()),
+            metadata.getProject().getIndexSafe(test_0.index()),
             test_0.initialize(node_0.getId(), null, 0L).moveToStarted(ShardRouting.UNAVAILABLE_EXPECTED_SHARD_SIZE),
             routingNode,
             allocation
@@ -877,7 +876,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
             .put(IndexMetadata.builder("test").settings(settings(IndexVersion.current())).numberOfShards(1).numberOfReplicas(1))
             .build();
 
-        final Index index = metadata.index("test").getIndex();
+        final Index index = metadata.getProject().index("test").getIndex();
 
         ShardRouting test_0 = ShardRouting.newUnassigned(
             new ShardId(index, 0),
@@ -890,7 +889,7 @@ public class DiskThresholdDeciderUnitTests extends ESAllocationTestCase {
         DiscoveryNode node_1 = DiscoveryNodeUtils.builder("node_1").roles(new HashSet<>(DiscoveryNodeRole.roles())).build();
 
         RoutingTable routingTable = RoutingTable.builder(TestShardRoutingRoleStrategies.DEFAULT_ROLE_ONLY)
-            .addAsNew(metadata.index("test"))
+            .addAsNew(metadata.getProject().index("test"))
             .build();
 
         ClusterState clusterState = ClusterState.builder(ClusterName.DEFAULT).metadata(metadata).routingTable(routingTable).build();

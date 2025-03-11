@@ -20,6 +20,7 @@ import org.elasticsearch.common.settings.IndexScopedSettings;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.settings.SettingsFilter;
+import org.elasticsearch.features.NodeFeature;
 import org.elasticsearch.indices.breaker.BreakerSettings;
 import org.elasticsearch.license.XPackLicenseState;
 import org.elasticsearch.monitor.jvm.JvmInfo;
@@ -42,6 +43,7 @@ import org.elasticsearch.xpack.ql.type.DefaultDataTypeRegistry;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 public class EqlPlugin extends Plugin implements ActionPlugin, CircuitBreakerPlugin {
@@ -56,6 +58,20 @@ public class EqlPlugin extends Plugin implements ActionPlugin, CircuitBreakerPlu
         true,
         Setting.Property.NodeScope,
         Setting.Property.DeprecatedWarning
+    );
+
+    public static final Setting<Boolean> DEFAULT_ALLOW_PARTIAL_SEARCH_RESULTS = Setting.boolSetting(
+        "xpack.eql.default_allow_partial_results",
+        true,
+        Setting.Property.NodeScope,
+        Setting.Property.Dynamic
+    );
+
+    public static final Setting<Boolean> DEFAULT_ALLOW_PARTIAL_SEQUENCE_RESULTS = Setting.boolSetting(
+        "xpack.eql.default_allow_partial_sequence_results",
+        false,
+        Setting.Property.NodeScope,
+        Setting.Property.Dynamic
     );
 
     public EqlPlugin() {}
@@ -84,7 +100,7 @@ public class EqlPlugin extends Plugin implements ActionPlugin, CircuitBreakerPlu
      */
     @Override
     public List<Setting<?>> getSettings() {
-        return List.of(EQL_ENABLED_SETTING);
+        return List.of(EQL_ENABLED_SETTING, DEFAULT_ALLOW_PARTIAL_SEARCH_RESULTS, DEFAULT_ALLOW_PARTIAL_SEQUENCE_RESULTS);
     }
 
     @Override
@@ -108,7 +124,8 @@ public class EqlPlugin extends Plugin implements ActionPlugin, CircuitBreakerPlu
         IndexScopedSettings indexScopedSettings,
         SettingsFilter settingsFilter,
         IndexNameExpressionResolver indexNameExpressionResolver,
-        Supplier<DiscoveryNodes> nodesInCluster
+        Supplier<DiscoveryNodes> nodesInCluster,
+        Predicate<NodeFeature> clusterSupportsFeature
     ) {
 
         return List.of(

@@ -19,22 +19,19 @@ import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.DefaultShardOperationFailedException;
 import org.elasticsearch.action.support.HandledTransportAction;
 import org.elasticsearch.action.support.broadcast.BroadcastShardOperationFailedException;
-import org.elasticsearch.client.internal.Client;
-import org.elasticsearch.cluster.ClusterState;
+import org.elasticsearch.cluster.ProjectState;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
-import org.elasticsearch.cluster.routing.GroupShardsIterator;
+import org.elasticsearch.cluster.project.ProjectResolver;
 import org.elasticsearch.cluster.routing.ShardIterator;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.bytes.BytesReference;
-import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.common.util.concurrent.EsThreadPoolExecutor;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.core.IOUtils;
@@ -48,6 +45,7 @@ import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.indices.IndicesService;
+import org.elasticsearch.injection.guice.Inject;
 import org.elasticsearch.license.XPackLicenseState;
 import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.search.SearchService;
@@ -63,6 +61,7 @@ import org.elasticsearch.transport.TransportException;
 import org.elasticsearch.transport.TransportRequestHandler;
 import org.elasticsearch.transport.TransportResponseHandler;
 import org.elasticsearch.transport.TransportService;
+import org.elasticsearch.transport.Transports;
 import org.elasticsearch.xpack.core.XPackSettings;
 import org.elasticsearch.xpack.core.security.SecurityContext;
 import org.elasticsearch.xpack.core.security.authz.AuthorizationServiceField;
@@ -98,10 +97,12 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
     private final SearchService searchService;
     private final IndicesService indicesService;
     private final ScriptService scriptService;
+    private final ProjectResolver projectResolver;
     private final IndexNameExpressionResolver indexNameExpressionResolver;
 
     final String transportShardAction;
-    private final String shardExecutor;
+    private final Executor coordinationExecutor;
+    private final Executor shardExecutor;
     private final XPackLicenseState licenseState;
     private final Settings settings;
     private final boolean ccsCheckCompatibility;
@@ -116,16 +117,25 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
         ActionFilters actionFilters,
         XPackLicenseState licenseState,
         Settings settings,
+        ProjectResolver projectResolver,
         IndexNameExpressionResolver indexNameExpressionResolver
     ) {
-        super(TermsEnumAction.NAME, transportService, actionFilters, TermsEnumRequest::new, EsExecutors.DIRECT_EXECUTOR_SERVICE);
+        super(
+            TermsEnumAction.NAME,
+            transportService,
+            actionFilters,
+            TermsEnumRequest::new,
+            clusterService.threadPool().executor(ThreadPool.Names.SEARCH_COORDINATION)
+        );
 
         this.clusterService = clusterService;
         this.searchService = searchService;
         this.transportService = transportService;
+        this.projectResolver = projectResolver;
         this.indexNameExpressionResolver = indexNameExpressionResolver;
         this.transportShardAction = actionName + "[s]";
-        this.shardExecutor = ThreadPool.Names.AUTO_COMPLETE;
+        this.coordinationExecutor = clusterService.threadPool().executor(ThreadPool.Names.SEARCH_COORDINATION);
+        this.shardExecutor = clusterService.threadPool().executor(ThreadPool.Names.AUTO_COMPLETE);
         this.indicesService = indicesService;
         this.scriptService = scriptService;
         this.licenseState = licenseState;
@@ -135,7 +145,7 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
 
         transportService.registerRequestHandler(
             transportShardAction,
-            EsExecutors.DIRECT_EXECUTOR_SERVICE,
+            coordinationExecutor,
             NodeTermsEnumRequest::new,
             new NodeTransportHandler()
         );
@@ -144,6 +154,11 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
 
     @Override
     protected void doExecute(Task task, TermsEnumRequest request, ActionListener<TermsEnumResponse> listener) {
+        // workaround for https://github.com/elastic/elasticsearch/issues/97916 - TODO remove this when we can
+        coordinationExecutor.execute(ActionRunnable.wrap(listener, l -> doExecuteForked(task, request, l)));
+    }
+
+    private void doExecuteForked(Task task, TermsEnumRequest request, ActionListener<TermsEnumResponse> listener) {
         if (ccsCheckCompatibility) {
             checkCCSVersionCompatibility(request);
         }
@@ -185,15 +200,15 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
         return new NodeTermsEnumResponse(in);
     }
 
-    protected Map<String, Set<ShardId>> getNodeBundles(ClusterState clusterState, String[] concreteIndices) {
+    protected Map<String, Set<ShardId>> getNodeBundles(ProjectState project, String[] concreteIndices) {
+        assert Transports.assertNotTransportThread("O(#shards) work is too much for transport threads");
         // Group targeted shards by nodeId
         Map<String, Set<ShardId>> fastNodeBundles = new HashMap<>();
         for (String indexName : concreteIndices) {
 
             String[] singleIndex = { indexName };
 
-            GroupShardsIterator<ShardIterator> shards = clusterService.operationRouting()
-                .searchShards(clusterState, singleIndex, null, null);
+            List<ShardIterator> shards = clusterService.operationRouting().searchShards(project, singleIndex, null, null);
 
             for (ShardIterator copiesOfShard : shards) {
                 ShardRouting selectedCopyOfShard = null;
@@ -229,6 +244,7 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
         boolean complete,
         Map<String, Set<ShardId>> nodeBundles
     ) {
+        assert Transports.assertNotTransportThread("O(#shards) work is too much for transport threads");
         int successfulShards = 0;
         int failedShards = 0;
         List<DefaultShardOperationFailedException> shardFailures = null;
@@ -478,7 +494,7 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
         return false;
     }
 
-    private boolean canMatchShard(ShardId shardId, NodeTermsEnumRequest req) throws IOException {
+    private boolean canMatchShard(ShardId shardId, NodeTermsEnumRequest req) {
         if (req.indexFilter() == null || req.indexFilter() instanceof MatchAllQueryBuilder) {
             return true;
         }
@@ -505,9 +521,9 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
             this.request = request;
             this.listener = listener;
 
-            ClusterState clusterState = clusterService.state();
+            ProjectState project = projectResolver.getProjectState(clusterService.state());
 
-            ClusterBlockException blockException = clusterState.blocks().globalBlockedException(ClusterBlockLevel.READ);
+            ClusterBlockException blockException = project.blocks().globalBlockedException(ClusterBlockLevel.READ);
             if (blockException != null) {
                 throw blockException;
             }
@@ -518,15 +534,15 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
             // update to concrete indices
             String[] concreteIndices = localIndices == null
                 ? new String[0]
-                : indexNameExpressionResolver.concreteIndexNames(clusterState, localIndices);
-            blockException = clusterState.blocks().indicesBlockedException(ClusterBlockLevel.READ, concreteIndices);
+                : indexNameExpressionResolver.concreteIndexNames(project.metadata(), localIndices);
+            blockException = project.blocks().indicesBlockedException(project.projectId(), ClusterBlockLevel.READ, concreteIndices);
             if (blockException != null) {
                 throw blockException;
             }
 
-            nodes = clusterState.nodes();
-            logger.trace("resolving shards based on cluster state version [{}]", clusterState.version());
-            nodeBundles = getNodeBundles(clusterState, concreteIndices);
+            nodes = project.cluster().nodes();
+            logger.trace("resolving shards based on cluster state version [{}]", project.cluster().version());
+            nodeBundles = getNodeBundles(project, concreteIndices);
             expectedOps = nodeBundles.size() + remoteClusterIndices.size();
 
             atomicResponses = new AtomicReferenceArray<>(expectedOps);
@@ -599,8 +615,8 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
                                 }
 
                                 @Override
-                                public Executor executor(ThreadPool threadPool) {
-                                    return TransportResponseHandler.TRANSPORT_WORKER;
+                                public Executor executor() {
+                                    return coordinationExecutor;
                                 }
 
                                 @Override
@@ -625,12 +641,12 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
             try {
                 TermsEnumRequest req = new TermsEnumRequest(request).indices(remoteIndices.indices());
 
-                Client remoteClient = remoteClusterService.getRemoteClusterClient(
-                    transportService.getThreadPool(),
+                var remoteClient = remoteClusterService.getRemoteClusterClient(
                     clusterAlias,
-                    EsExecutors.DIRECT_EXECUTOR_SERVICE
+                    coordinationExecutor,
+                    RemoteClusterService.DisconnectedStrategy.RECONNECT_UNLESS_SKIP_UNAVAILABLE
                 );
-                remoteClient.execute(TermsEnumAction.INSTANCE, req, new ActionListener<>() {
+                remoteClient.execute(TermsEnumAction.REMOTE_TYPE, req, new ActionListener<>() {
                     @Override
                     public void onResponse(TermsEnumResponse termsEnumResponse) {
                         onRemoteClusterResponse(
@@ -736,10 +752,8 @@ public class TransportTermsEnumAction extends HandledTransportAction<TermsEnumRe
             assert transportService.getThreadPool().executor(ThreadPool.Names.SEARCH) instanceof EsThreadPoolExecutor
                 : "SEARCH threadpool must be an instance of ThreadPoolExecutor";
             EsThreadPoolExecutor ex = (EsThreadPoolExecutor) transportService.getThreadPool().executor(ThreadPool.Names.SEARCH);
-            final String executorName = ex.getQueue().size() == 0 ? ThreadPool.Names.SEARCH : shardExecutor;
-            transportService.getThreadPool()
-                .executor(executorName)
-                .execute(ActionRunnable.supply(listener, () -> dataNodeOperation(request)));
+            final Executor executor = ex.getQueue().size() == 0 ? ex : shardExecutor;
+            executor.execute(ActionRunnable.supply(listener, () -> dataNodeOperation(request)));
         }
     }
 

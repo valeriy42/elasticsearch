@@ -5,6 +5,12 @@
 <titleabbrev>Get data stream</titleabbrev>
 ++++
 
+.New API reference
+[sidebar]
+--
+For the most up-to-date API details, refer to {api-es}/group/endpoint-data-stream[Data stream APIs].
+--
+
 Retrieves information about one or more <<data-streams,data streams>>.
 See <<get-info-about-data-stream>>.
 
@@ -97,12 +103,16 @@ returned.
 [[get-data-stream-api-query-parms]]
 ==== {api-query-parms-title}
 
-include::{es-repo-dir}/rest-api/common-parms.asciidoc[tag=ds-expand-wildcards]
+include::{es-ref-dir}/rest-api/common-parms.asciidoc[tag=ds-expand-wildcards]
 +
 Defaults to `open`.
 
 `include_defaults`::
 (Optional, Boolean) Functionality in preview:[]. If `true`, return all default settings in the response.
+Defaults to `false`.
+
+`verbose`::
+(Optional, Boolean). If `true`, Returns the `maximum_timestamp` corresponding to the `@timestamp` field for documents in the data stream.
 Defaults to `false`.
 
 [role="child_attributes"]
@@ -294,14 +304,16 @@ The API returns the following response:
           "index_uuid": "xCEhwsp8Tey0-FLNFYVwSg",
           "prefer_ilm": true,
           "ilm_policy": "my-lifecycle-policy",
-          "managed_by": "Index Lifecycle Management"
+          "managed_by": "Index Lifecycle Management",
+          "index_mode": "standard"
         },
         {
           "index_name": ".ds-my-data-stream-2099.03.08-000002",
           "index_uuid": "PA_JquKGSiKcAKBA8DJ5gw",
           "prefer_ilm": true,
           "ilm_policy": "my-lifecycle-policy",
-          "managed_by": "Index Lifecycle Management"
+          "managed_by": "Index Lifecycle Management",
+          "index_mode": "standard"
         }
       ],
       "generation": 2,
@@ -309,6 +321,7 @@ The API returns the following response:
         "my-meta-field": "foo"
       },
       "status": "GREEN",
+      "index_mode": "standard",
       "next_generation_managed_by": "Index Lifecycle Management",
       "prefer_ilm": true,
       "template": "my-index-template",
@@ -330,7 +343,8 @@ The API returns the following response:
           "index_uuid": "3liBu2SYS5axasRt6fUIpA",
           "prefer_ilm": true,
           "ilm_policy": "my-lifecycle-policy",
-          "managed_by": "Index Lifecycle Management"
+          "managed_by": "Index Lifecycle Management",
+          "index_mode": "standard"
         }
       ],
       "generation": 1,
@@ -338,6 +352,7 @@ The API returns the following response:
         "my-meta-field": "foo"
       },
       "status": "YELLOW",
+      "index_mode": "standard",
       "next_generation_managed_by": "Index Lifecycle Management",
       "prefer_ilm": true,
       "template": "my-index-template",
@@ -358,4 +373,4 @@ The API returns the following response:
 // TESTRESPONSE[s/"index_name": ".ds-my-data-stream-two-2099.03.08-000001"/"index_name": $body.data_streams.1.indices.0.index_name/]
 // TESTRESPONSE[s/"index_uuid": "3liBu2SYS5axasRt6fUIpA"/"index_uuid": $body.data_streams.1.indices.0.index_uuid/]
 // TESTRESPONSE[s/"status": "GREEN"/"status": "YELLOW"/]
-// TESTRESPONSE[s/"replicated": false/"replicated": false,"failure_indices":[],"failure_store":false/]
+// TESTRESPONSE[s/"replicated": false/"replicated": false,"failure_store":{"enabled": false, "indices": [], "rollover_on_write": true}/]
