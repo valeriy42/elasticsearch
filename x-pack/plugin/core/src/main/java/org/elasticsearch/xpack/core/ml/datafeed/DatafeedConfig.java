@@ -114,9 +114,15 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
      */
     public static final String DOC_COUNT = "doc_count";
 
+    // FEATURE FLAG REMOVAL CHECKLIST (when DATAFEED_CROSS_PROJECT goes GA):
+    // 1. Delete this feature flag declaration (line 117)
+    // 2. In isCPSAllowed() method: Remove feature flag check, keep only CrossProjectModeDecider check
+    // 3. In Builder.build(): Delete both feature flag checks (lines ~1213 and ~1218)
+    // 4. Delete validateNoCrossProjectWhenCrossProjectFeatureIsDisabled() method entirely
+    // 5. Update tests in DatafeedConfigTests.java that mock feature flag behavior
     public static final FeatureFlag DATAFEED_CROSS_PROJECT = new FeatureFlag("datafeed_cross_project");
 
-    // TODO @valeriy42: Before merging to main, regenerate transport version files to get a unique version ID
+    // TODO: Before merging to main, regenerate transport version files to get a unique version ID
     // private static final TransportVersion DATAFEED_PROJECT_ROUTING = TransportVersion.fromName("datafeed_project_routing");
     private static final TransportVersion DATAFEED_PROJECT_ROUTING = TransportVersion.fromName("index_limit_exceeded_exception");
 
@@ -357,6 +363,27 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
     }
 
     /**
+     * Determines if Cross-Project Search (CPS) features are allowed for datafeeds.
+     * This method consolidates all CPS capability checks in one place to simplify
+     * future feature flag removal.
+     * @param crossProjectModeDecider determines if environment supports CPS
+     * @return true if CPS features are allowed, false otherwise
+     */
+    public static boolean isCPSAllowed(CrossProjectModeDecider crossProjectModeDecider) {
+        Objects.requireNonNull(crossProjectModeDecider, "crossProjectModeDecider must not be null");
+
+        if (crossProjectModeDecider.crossProjectEnabled() == false) {
+            return false;
+        }
+
+        if (DATAFEED_CROSS_PROJECT.isEnabled() == false) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * The name of datafeed configuration document name from the datafeed ID.
      *
      * @param datafeedId The datafeed ID
@@ -366,31 +393,48 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         return TYPE + "-" + datafeedId;
     }
 
+    /**
+     * Validates that this datafeed doesn't use CPS features when CPS is not allowed.
+     * This is used at runtime when starting a datafeed that was created when CPS was enabled,
+     * but is now being started when CPS is disabled (environment doesn't support it).
+     */
     public ActionRequestValidationException validateNoCrossProjectWhenCrossProjectIsDisabled(
         CrossProjectModeDecider crossProjectModeDecider,
         ActionRequestValidationException validationException
     ) {
+        // Only validate if environment supports CPS - if environment doesn't support CPS at all,
+        // the environment itself will handle validation, so we don't need to check here.
         if (crossProjectModeDecider.crossProjectEnabled()) {
-            return validateNoCrossProjectWhenCrossProjectFeatureIsDisabled(DATAFEED_CROSS_PROJECT.isEnabled(), validationException);
+            // Check feature flag - this is the temporary check that will be removed at GA
+            if (DATAFEED_CROSS_PROJECT.isEnabled() == false) {
+                // verify there are no remote indices
+                var remoteIndices = RemoteClusterAware.getRemoteIndexExpressions(getIndices().toArray(new String[0]));
+                if (remoteIndices.isEmpty() == false) {
+                    validationException = addValidationError(
+                        "Cross-project calls are not supported, but remote indices were requested: " + remoteIndices,
+                        validationException
+                    );
+                }
+            }
         }
         return validationException;
     }
 
     // visible for testing
-    // remove both this and validateNoCrossProjectWhenCrossProjectIsDisabled when the feature is launched
     ActionRequestValidationException validateNoCrossProjectWhenCrossProjectFeatureIsDisabled(
         boolean featureEnabled,
         ActionRequestValidationException validationException
     ) {
-        if (featureEnabled == false) {
-            // verify there are no remote indices
-            var remoteIndices = RemoteClusterAware.getRemoteIndexExpressions(getIndices().toArray(new String[0]));
-            if (remoteIndices.isEmpty() == false) {
-                validationException = addValidationError(
-                    "Cross-project calls are not supported, but remote indices were requested: " + remoteIndices,
-                    validationException
-                );
-            }
+        if (featureEnabled) {
+            return validationException;
+        }
+
+        var remoteIndices = RemoteClusterAware.getRemoteIndexExpressions(getIndices().toArray(new String[0]));
+        if (remoteIndices.isEmpty() == false) {
+            validationException = addValidationError(
+                "Cross-project calls are not supported, but remote indices were requested: " + remoteIndices,
+                validationException
+            );
         }
         return validationException;
     }
@@ -1178,16 +1222,11 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
                 throw new ElasticsearchStatusException("Cross-project search is not enabled for Datafeeds", RestStatus.FORBIDDEN);
             }
 
-            // Validate project_routing requires CPS feature flag
-            // Note: CPS mode in IndicesOptions is applied at runtime via withCrossProjectModeIfEnabled()
-            // when the datafeed starts, so we don't validate it here.
-            if (projectRouting != null) {
-                if (DATAFEED_CROSS_PROJECT.isEnabled() == false) {
-                    throw new ElasticsearchStatusException(
-                        "project_routing requires cross-project search feature to be enabled for Datafeeds",
-                        RestStatus.FORBIDDEN
-                    );
-                }
+            if (projectRouting != null && DATAFEED_CROSS_PROJECT.isEnabled() == false) {
+                throw new ElasticsearchStatusException(
+                    "project_routing requires cross-project search feature to be enabled for Datafeeds",
+                    RestStatus.FORBIDDEN
+                );
             }
 
             return new DatafeedConfig(

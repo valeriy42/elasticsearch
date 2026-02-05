@@ -11,6 +11,7 @@ import com.carrotsearch.randomizedtesting.generators.CodepointSetGenerator;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.TransportVersion;
+import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.aggregations.AggregationsPlugin;
@@ -1403,6 +1404,68 @@ public class DatafeedConfigTests extends AbstractXContentSerializingTestCase<Dat
                 (org.elasticsearch.action.ActionRequestValidationException) null
             )
         );
+    }
+
+    public void testIsCPSAllowed_GivenNullCrossProjectModeDecider() {
+        NullPointerException e = expectThrows(NullPointerException.class, () -> DatafeedConfig.isCPSAllowed(null));
+        assertThat(e.getMessage(), equalTo("crossProjectModeDecider must not be null"));
+    }
+
+    public void testIsCPSAllowed_GivenCrossProjectDisabledInEnvironment() {
+        // When environment doesn't support CPS (CrossProjectModeDecider returns false)
+        CrossProjectModeDecider decider = new CrossProjectModeDecider(Settings.EMPTY);
+
+        assertFalse(DatafeedConfig.isCPSAllowed(decider));
+    }
+
+    public void testIsCPSAllowed_GivenCrossProjectEnabledInEnvironment() {
+        // When environment supports CPS
+        Settings settings = Settings.builder().put("serverless.cross_project.enabled", true).build();
+        CrossProjectModeDecider decider = new CrossProjectModeDecider(settings);
+
+        // The result depends on the feature flag state (enabled in snapshot builds, may be disabled in release builds)
+        boolean result = DatafeedConfig.isCPSAllowed(decider);
+        boolean featureFlagEnabled = DatafeedConfig.DATAFEED_CROSS_PROJECT.isEnabled();
+
+        // If feature flag is enabled, should return true (both checks pass)
+        // If feature flag is disabled, should return false (feature flag check fails)
+        assertThat(result, equalTo(featureFlagEnabled));
+    }
+
+    public void testIsCPSAllowed_ConsistentWithValidateMethod() {
+        // Verify isCPSAllowed() is consistent with validateNoCrossProjectWhenCrossProjectIsDisabled()
+        Settings settings = Settings.builder().put("serverless.cross_project.enabled", true).build();
+        CrossProjectModeDecider decider = new CrossProjectModeDecider(settings);
+
+        DatafeedConfig datafeed = createTestInstance();
+
+        // The methods should be consistent regardless of feature flag state
+        boolean allowed = DatafeedConfig.isCPSAllowed(decider);
+        ActionRequestValidationException validationResult = datafeed.validateNoCrossProjectWhenCrossProjectIsDisabled(
+            decider,
+            (org.elasticsearch.action.ActionRequestValidationException) null
+        );
+
+        // If CPS is allowed, validation should pass (return null)
+        if (allowed) {
+            assertNull(validationResult);
+        }
+    }
+
+    public void testIsCPSAllowed_WithMultipleDeciders() {
+        // Test with multiple CrossProjectModeDecider instances to ensure consistent behavior
+        Settings disabledSettings = Settings.EMPTY;
+        Settings enabledSettings = Settings.builder().put("serverless.cross_project.enabled", true).build();
+
+        CrossProjectModeDecider disabledDecider = new CrossProjectModeDecider(disabledSettings);
+        CrossProjectModeDecider enabledDecider = new CrossProjectModeDecider(enabledSettings);
+
+        // Disabled environment should always return false (environment check fails)
+        assertFalse(DatafeedConfig.isCPSAllowed(disabledDecider));
+
+        // Enabled environment should return true only if feature flag is also enabled
+        boolean featureFlagEnabled = DatafeedConfig.DATAFEED_CROSS_PROJECT.isEnabled();
+        assertThat(DatafeedConfig.isCPSAllowed(enabledDecider), equalTo(featureFlagEnabled));
     }
 
     private DatafeedConfig createDatafeedConfigFromString(String json) throws IOException {
