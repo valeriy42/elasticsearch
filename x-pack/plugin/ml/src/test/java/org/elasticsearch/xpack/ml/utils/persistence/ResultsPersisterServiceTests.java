@@ -228,6 +228,23 @@ public class ResultsPersisterServiceTests extends ESTestCase {
         verify(client, times(1)).execute(eq(TransportSearchAction.TYPE), eq(SEARCH_REQUEST), any());
     }
 
+    public void testSearchWithRetries_TaskCancelledException_isIrrecoverable() {
+        // TaskCancelledException should not be retried (classified irrecoverable by MlRecoverableErrorClassifier)
+        resultsPersisterService.setMaxFailureRetries(5);
+
+        doAnswer(withFailure(new org.elasticsearch.tasks.TaskCancelledException("task was cancelled"))).when(client)
+            .execute(eq(TransportSearchAction.TYPE), eq(SEARCH_REQUEST), any());
+
+        ElasticsearchException e = expectThrows(
+            ElasticsearchException.class,
+            () -> resultsPersisterService.searchWithRetry(SEARCH_REQUEST, JOB_ID, () -> true, (s) -> {})
+        );
+        assertThat(e.getMessage(), containsString("task was cancelled"));
+
+        // No retry: only one call to client.execute
+        verify(client, times(1)).execute(eq(TransportSearchAction.TYPE), eq(SEARCH_REQUEST), any());
+    }
+
     private static Supplier<Boolean> shouldRetryUntil(int maxRetries) {
         return new Supplier<>() {
             int retries = 0;

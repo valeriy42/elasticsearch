@@ -36,6 +36,7 @@ import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.XContentFactory;
 import org.elasticsearch.xpack.core.ClientHelper;
 import org.elasticsearch.xpack.core.ml.MlMetadata;
+import org.elasticsearch.xpack.ml.utils.MlRecoverableErrorClassifier;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -320,8 +321,15 @@ public class ResultsPersisterService {
      * @return true when the failure will persist no matter how many times we retry.
      */
     private static boolean isIrrecoverable(Exception ex) {
-        Throwable t = ExceptionsHelper.unwrapCause(ex);
-        return IRRECOVERABLE_REST_STATUSES.contains(status(t));
+        // Delegate to the centralised classifier, which uses an explicit allowlist.
+        // When the classifier explicitly recognises the exception as recoverable, honour that.
+        // For unknown exceptions (classifier defaults to irrecoverable) we preserve the
+        // pre-existing behaviour of retrying anything whose REST status is not in the known-bad
+        // set, because the bounded retry count already provides a safety net.
+        if (MlRecoverableErrorClassifier.isRecoverable(ex)) {
+            return false;
+        }
+        return IRRECOVERABLE_REST_STATUSES.contains(status(ExceptionsHelper.unwrapCause(ex)));
     }
 
     @SuppressWarnings("NonAtomicOperationOnVolatileField")
