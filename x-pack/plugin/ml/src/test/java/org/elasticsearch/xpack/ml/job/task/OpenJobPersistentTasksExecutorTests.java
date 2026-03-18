@@ -30,6 +30,7 @@ import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
+import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexVersion;
 import org.elasticsearch.index.shard.ShardId;
@@ -44,7 +45,6 @@ import org.elasticsearch.xpack.core.ml.MlConfigIndex;
 import org.elasticsearch.xpack.core.ml.MlMetaIndex;
 import org.elasticsearch.xpack.core.ml.MlMetadata;
 import org.elasticsearch.xpack.core.ml.MlTasks;
-import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.xpack.core.ml.action.OpenJobAction;
 import org.elasticsearch.xpack.core.ml.job.config.AnalysisConfig;
 import org.elasticsearch.xpack.core.ml.job.config.Blocked;
@@ -75,13 +75,10 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
 
 import static org.elasticsearch.xpack.core.ml.job.config.JobTests.buildJobBuilder;
 import static org.elasticsearch.xpack.ml.job.task.OpenJobPersistentTasksExecutor.validateJobAndId;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -378,10 +375,7 @@ public class OpenJobPersistentTasksExecutorTests extends ESTestCase {
     }
 
     public void testJOB_OPEN_RETRY_TIMEOUT_settingDefaultIs60Minutes() {
-        assertEquals(
-            TimeValue.timeValueMinutes(60),
-            MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getDefault(Settings.EMPTY)
-        );
+        assertEquals(TimeValue.timeValueMinutes(60), MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getDefault(Settings.EMPTY));
     }
 
     // -------------------------------------------------------------------------
@@ -411,8 +405,8 @@ public class OpenJobPersistentTasksExecutorTests extends ESTestCase {
         doAnswer(inv -> {
             @SuppressWarnings("unchecked")
             org.elasticsearch.action.ActionListener<org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask<?>> listener =
-                (org.elasticsearch.action.ActionListener<
-                    org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask<?>>) inv.getArguments()[1];
+                (org.elasticsearch.action.ActionListener<org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask<?>>) inv
+                    .getArguments()[1];
             if (attempts.incrementAndGet() < 3) {
                 listener.onFailure(new RuntimeException("transient"));
             } else {
@@ -443,8 +437,8 @@ public class OpenJobPersistentTasksExecutorTests extends ESTestCase {
         doAnswer(inv -> {
             @SuppressWarnings("unchecked")
             org.elasticsearch.action.ActionListener<org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask<?>> listener =
-                (org.elasticsearch.action.ActionListener<
-                    org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask<?>>) inv.getArguments()[1];
+                (org.elasticsearch.action.ActionListener<org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask<?>>) inv
+                    .getArguments()[1];
             listener.onFailure(rnfe);
             return null;
         }).when(jobTask).updatePersistentTaskState(any(), any());

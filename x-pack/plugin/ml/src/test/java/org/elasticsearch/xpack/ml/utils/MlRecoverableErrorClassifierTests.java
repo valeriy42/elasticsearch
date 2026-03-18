@@ -7,32 +7,31 @@
 
 package org.elasticsearch.xpack.ml.utils;
 
-import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.ElasticsearchStatusException;
+import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.ShardSearchFailure;
 import org.elasticsearch.client.internal.transport.NoNodeAvailableException;
+import org.elasticsearch.cluster.NotMasterException;
 import org.elasticsearch.cluster.block.ClusterBlock;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
+import org.elasticsearch.cluster.node.DiscoveryNodeUtils;
 import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.discovery.MasterNotDiscoveredException;
-import org.elasticsearch.cluster.NotMasterException;
 import org.elasticsearch.index.engine.VersionConflictEngineException;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.node.NodeClosedException;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.tasks.TaskCancelledException;
 import org.elasticsearch.test.ESTestCase;
-import org.elasticsearch.cluster.node.DiscoveryNodeUtils;
 import org.elasticsearch.transport.ConnectTransportException;
 import org.elasticsearch.transport.NodeNotConnectedException;
 import org.elasticsearch.transport.ReceiveTimeoutTransportException;
 import org.elasticsearch.transport.RemoteTransportException;
-import org.elasticsearch.transport.SendRequestTransportException;
 
 import java.util.EnumSet;
 import java.util.Set;
@@ -82,15 +81,7 @@ public class MlRecoverableErrorClassifierTests extends ESTestCase {
     }
 
     public void testClusterBlockException_retryableFalse_isNotRecoverable() {
-        var block = new ClusterBlock(
-            2,
-            "permanent block",
-            false,
-            false,
-            false,
-            RestStatus.FORBIDDEN,
-            EnumSet.of(ClusterBlockLevel.WRITE)
-        );
+        var block = new ClusterBlock(2, "permanent block", false, false, false, RestStatus.FORBIDDEN, EnumSet.of(ClusterBlockLevel.WRITE));
         var e = new ClusterBlockException(Set.of(block));
         assertFalse(MlRecoverableErrorClassifier.isRecoverable(e));
     }

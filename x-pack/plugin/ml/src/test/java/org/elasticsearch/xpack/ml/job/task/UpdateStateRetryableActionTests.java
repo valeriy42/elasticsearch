@@ -9,7 +9,6 @@ package org.elasticsearch.xpack.ml.job.task;
 
 import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.test.ESTestCase;
@@ -22,7 +21,6 @@ import org.junit.Before;
 
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -48,40 +46,27 @@ public class UpdateStateRetryableActionTests extends ESTestCase {
     }
 
     public void testShouldRetry_returnsTrue_forGenericException() {
-        var action = new UpdateStateRetryableAction(
-            logger,
-            threadPool,
-            jobTask,
-            jobTaskState,
-            ActionListener.noop()
-        );
+        var action = new UpdateStateRetryableAction(logger, threadPool, jobTask, jobTaskState, ActionListener.noop());
         assertTrue(action.shouldRetry(new RuntimeException("transient")));
         assertTrue(action.shouldRetry(new IllegalStateException("state error")));
-        assertTrue(action.shouldRetry(new org.elasticsearch.ElasticsearchStatusException("service unavailable",
-            org.elasticsearch.rest.RestStatus.SERVICE_UNAVAILABLE)));
+        assertTrue(
+            action.shouldRetry(
+                new org.elasticsearch.ElasticsearchStatusException(
+                    "service unavailable",
+                    org.elasticsearch.rest.RestStatus.SERVICE_UNAVAILABLE
+                )
+            )
+        );
     }
 
     public void testShouldRetry_returnsFalse_forResourceNotFoundException() {
-        var action = new UpdateStateRetryableAction(
-            logger,
-            threadPool,
-            jobTask,
-            jobTaskState,
-            ActionListener.noop()
-        );
+        var action = new UpdateStateRetryableAction(logger, threadPool, jobTask, jobTaskState, ActionListener.noop());
         assertFalse(action.shouldRetry(new ResourceNotFoundException("task not found")));
     }
 
     public void testShouldRetry_returnsFalse_forWrappedResourceNotFoundException() {
-        var action = new UpdateStateRetryableAction(
-            logger,
-            threadPool,
-            jobTask,
-            jobTaskState,
-            ActionListener.noop()
-        );
-        var wrapped = new org.elasticsearch.transport.RemoteTransportException("remote",
-            new ResourceNotFoundException("task not found"));
+        var action = new UpdateStateRetryableAction(logger, threadPool, jobTask, jobTaskState, ActionListener.noop());
+        var wrapped = new org.elasticsearch.transport.RemoteTransportException("remote", new ResourceNotFoundException("task not found"));
         assertFalse(action.shouldRetry(wrapped));
     }
 
@@ -109,27 +94,14 @@ public class UpdateStateRetryableActionTests extends ESTestCase {
     public void testCustomTimeout_constructor_usesProvidedTimeout() {
         var customTimeout = TimeValue.timeValueMinutes(60);
         // Just verify the action can be constructed with a custom timeout (no exception thrown)
-        var action = new UpdateStateRetryableAction(
-            logger,
-            threadPool,
-            jobTask,
-            jobTaskState,
-            customTimeout,
-            ActionListener.noop()
-        );
+        var action = new UpdateStateRetryableAction(logger, threadPool, jobTask, jobTaskState, customTimeout, ActionListener.noop());
         assertNotNull(action);
     }
 
     public void testDefaultTimeout_usesDefaultLongTimeout() {
         // Default constructor uses PERSISTENT_TASK_MASTER_NODE_TIMEOUT (365 days)
         // Verify it can be constructed without specifying a timeout
-        var action = new UpdateStateRetryableAction(
-            logger,
-            threadPool,
-            jobTask,
-            jobTaskState,
-            ActionListener.noop()
-        );
+        var action = new UpdateStateRetryableAction(logger, threadPool, jobTask, jobTaskState, ActionListener.noop());
         assertNotNull(action);
     }
 }

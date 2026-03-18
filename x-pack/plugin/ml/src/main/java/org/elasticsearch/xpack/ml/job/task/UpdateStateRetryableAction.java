@@ -65,14 +65,7 @@ public class UpdateStateRetryableAction extends RetryableAction<PersistentTasksC
         TimeValue timeout,
         ActionListener<PersistentTasksCustomMetadata.PersistentTask<?>> delegateListener
     ) {
-        super(
-            logger,
-            threadPool,
-            TimeValue.timeValueMillis(MIN_RETRY_SLEEP_MILLIS),
-            timeout,
-            delegateListener,
-            threadPool.generic()
-        );
+        super(logger, threadPool, TimeValue.timeValueMillis(MIN_RETRY_SLEEP_MILLIS), timeout, delegateListener, threadPool.generic());
         this.jobTask = Objects.requireNonNull(jobTask);
         this.jobTaskState = Objects.requireNonNull(jobTaskState);
     }
