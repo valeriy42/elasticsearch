@@ -20,6 +20,7 @@ import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
+import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.TimeValue;
@@ -98,7 +99,7 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
     private final JobResultsProvider jobResultsProvider;
     private final AnomalyDetectionAuditor auditor;
     private final XPackLicenseState licenseState;
-    private final org.elasticsearch.common.settings.ClusterSettings clusterSettings;
+    private final ClusterSettings clusterSettings;
 
     private volatile ClusterState clusterState;
 
@@ -244,6 +245,7 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
         jobTask.setAutodetectProcessManager(autodetectProcessManager);
         JobTaskState jobTaskState = (JobTaskState) state;
 
+        // This indicates a system-initiated reassignment as an opposite to a user-initiated open.
         boolean isReassignment = jobTaskState != null && jobTaskState.getAllocationId() != task.getAllocationId();
 
         if (isReassignment) {

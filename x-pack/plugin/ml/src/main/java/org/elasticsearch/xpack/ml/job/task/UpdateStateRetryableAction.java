@@ -32,6 +32,14 @@ import java.util.Objects;
  *       appropriate for long-running state transitions like OPENED where a native process is running.</li>
  *   <li>Custom timeout: use for bounded transitions like FAILED during the opening phase (e.g. 60 minutes).</li>
  * </ul>
+ *
+ * <p><b>Design decision: why different timeouts?</b> For FAILED, no native process is running; we are
+ * only recording the failure. A bounded timeout (e.g. 60 minutes) is acceptable: if the master is
+ * unavailable that long, we eventually fall back to {@code markAsFailed()}. For OPENED, a native
+ * process is already running and we must commit the state so cluster state matches reality. A bounded
+ * timeout would orphan the process (running process, cluster state stuck in OPENING). We therefore
+ * use an effectively unbounded timeout (365 days) for OPENED so we keep retrying until the master
+ * acknowledges the transition.
  */
 public class UpdateStateRetryableAction extends RetryableAction<PersistentTasksCustomMetadata.PersistentTask<?>> {
 

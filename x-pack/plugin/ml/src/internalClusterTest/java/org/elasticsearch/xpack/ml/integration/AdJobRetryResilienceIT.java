@@ -7,6 +7,7 @@
 package org.elasticsearch.xpack.ml.integration;
 
 import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsRequest;
+import org.elasticsearch.cluster.node.DiscoveryNodeRole;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.core.TimeValue;
@@ -20,8 +21,11 @@ import org.elasticsearch.xpack.core.ml.job.config.JobState;
 import org.elasticsearch.xpack.ml.MachineLearning;
 import org.elasticsearch.xpack.ml.support.BaseMlIntegTestCase;
 
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import static org.elasticsearch.test.NodeRoles.addRoles;
+import static org.elasticsearch.test.NodeRoles.removeRoles;
 import static org.hamcrest.Matchers.equalTo;
 
 /**
@@ -33,8 +37,10 @@ import static org.hamcrest.Matchers.equalTo;
  *       defaults to 60 minutes, and can be updated dynamically.</li>
  *   <li>A basic smoke test: normal user-initiated job open/close still works end-to-end
  *       (no regression from the retry mechanism).</li>
- *   <li>User-initiated fail-fast: when the ML state index is blocked and a user opens a job,
- *       the job should fail quickly (fail-fast path, no retry wrapper applied).</li>
+ *   <li>System-initiated reassignment: when a node fails, the job reassigns and eventually
+ *       reopens on another node.</li>
+ *   <li>Index unavailability during reassignment: when ML indices are temporarily unavailable
+ *       during a system-initiated reassignment, retries eventually succeed after recovery.</li>
  * </ol>
  */
 @ESIntegTestCase.ClusterScope(scope = ESIntegTestCase.Scope.TEST, numDataNodes = 0)
@@ -135,5 +141,110 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
         GetJobsStatsAction.Response stats = client().execute(GetJobsStatsAction.INSTANCE, new GetJobsStatsAction.Request(jobId))
             .actionGet();
         assertThat(stats.getResponse().results().get(0).getState(), equalTo(JobState.OPENED));
+    }
+
+    /**
+     * Verifies that when ML indices are temporarily unavailable during a system-initiated
+     * reassignment, the retry path eventually succeeds after the indices recover.
+     *
+     * Scenario: 3 nodes - state (holds .ml-state, .ml-anomalies-shared), config (holds .ml-config),
+     * and ml-only (runs the job). Job opens on ml-only. We stop state node (indices go red), then
+     * stop ml-only (job reassigns to config). Config's open attempts fail (state indices red).
+     * We update allocation to allow config, shards relocate, and the retry succeeds.
+     */
+    public void testJobReopensAfterIndexUnavailabilityDuringReassignment() throws Exception {
+        internalCluster().ensureAtMostNumDataNodes(0);
+
+        String stateNode = internalCluster().startNode(
+            Settings.builder()
+                .put("node.attr.ml-indices", "state-and-results")
+                .put(removeRoles(Set.of(DiscoveryNodeRole.ML_ROLE)))
+                .put(addRoles(Set.of(DiscoveryNodeRole.DATA_ROLE)))
+                .build()
+        );
+        ensureStableCluster(1);
+
+        String configNode = internalCluster().startNode(
+            Settings.builder()
+                .put("node.attr.ml-indices", "config")
+                .put(addRoles(Set.of(DiscoveryNodeRole.DATA_ROLE, DiscoveryNodeRole.ML_ROLE)))
+                .build()
+        );
+        ensureStableCluster(2);
+
+        String mlOnlyNode = internalCluster().startNode(
+            Settings.builder()
+                .put("node.attr.ml-indices", "ml-only")
+                .put(addRoles(Set.of(DiscoveryNodeRole.DATA_ROLE, DiscoveryNodeRole.ML_ROLE)))
+                .build()
+        );
+        ensureStableCluster(3);
+
+        // Create indices: state/results on state-and-results, config on config
+        indicesAdmin().prepareCreate(".ml-anomalies-shared-000001")
+            .setSettings(
+                Settings.builder()
+                    .put("index.routing.allocation.include.ml-indices", "state-and-results")
+                    .put("index.routing.allocation.exclude.ml-indices", "config,ml-only")
+                    .build()
+            )
+            .get();
+        indicesAdmin().prepareCreate(".ml-state")
+            .setSettings(
+                Settings.builder()
+                    .put("index.routing.allocation.include.ml-indices", "state-and-results")
+                    .put("index.routing.allocation.exclude.ml-indices", "config,ml-only")
+                    .build()
+            )
+            .get();
+        indicesAdmin().prepareCreate(".ml-config")
+            .setSettings(
+                Settings.builder()
+                    .put("index.routing.allocation.exclude.ml-indices", "state-and-results")
+                    .put("index.routing.allocation.include.ml-indices", "config")
+                    .build()
+            )
+            .get();
+
+        ClusterUpdateSettingsRequest timeoutRequest = new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT);
+        timeoutRequest.persistentSettings(Settings.builder().put(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey(), "2m").build());
+        client().admin().cluster().updateSettings(timeoutRequest).actionGet();
+
+        String jobId = "retry-resilience-index-unavailable-job";
+        Job.Builder job = createJob(jobId, ByteSizeValue.ofMb(2));
+        client().execute(PutJobAction.INSTANCE, new PutJobAction.Request(job)).actionGet();
+
+        ensureYellow();
+        client().execute(OpenJobAction.INSTANCE, new OpenJobAction.Request(jobId)).actionGet();
+        String jobNode = awaitJobOpenedAndAssigned(jobId, null);
+        assertNotNull(jobNode);
+        // Job must run on mlOnlyNode so we can stop it and reassign to configNode (which has .ml-config)
+        org.junit.Assume.assumeTrue("job must run on ml-only node for this test; got " + jobNode, jobNode.equals(mlOnlyNode));
+
+        setMlIndicesDelayedNodeLeftTimeoutToZero();
+        ensureGreen();
+
+        // Stop state node first: .ml-state and .ml-anomalies-shared go red
+        internalCluster().stopNode(stateNode);
+        ensureStableCluster(2);
+
+        // Stop the node running the job: triggers reassignment to config node
+        internalCluster().stopNode(jobNode);
+        ensureStableCluster(1, configNode);
+
+        // Config node's open attempts fail (state indices red). Allow allocation to config so shards relocate.
+        indicesAdmin().prepareUpdateSettings(".ml-state", ".ml-anomalies-shared-000001")
+            .setSettings(Settings.builder().put("index.routing.allocation.include.ml-indices", "state-and-results,config").build())
+            .get();
+
+        awaitJobOpenedAndAssigned(jobId, null);
+
+        GetJobsStatsAction.Response stats = client().execute(GetJobsStatsAction.INSTANCE, new GetJobsStatsAction.Request(jobId))
+            .actionGet();
+        assertThat(stats.getResponse().results().get(0).getState(), equalTo(JobState.OPENED));
+
+        ClusterUpdateSettingsRequest resetRequest = new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT);
+        resetRequest.persistentSettings(Settings.builder().putNull(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey()).build());
+        client().admin().cluster().updateSettings(resetRequest).actionGet();
     }
 }

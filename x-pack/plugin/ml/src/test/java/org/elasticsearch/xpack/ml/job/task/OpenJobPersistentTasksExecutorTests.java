@@ -312,10 +312,6 @@ public class OpenJobPersistentTasksExecutorTests extends ESTestCase {
         return job.build(new Date());
     }
 
-    // -------------------------------------------------------------------------
-    // Tests for nodeOperation() branching (user-initiated vs system reassignment)
-    // -------------------------------------------------------------------------
-
     public void testNodeOperation_userInitiated_nullState_doesNotRetry() {
         // When state is null (user-initiated fresh open), pipeline runs directly (no retry action created)
         var executor = spy(createExecutor(Settings.EMPTY));
@@ -373,14 +369,6 @@ public class OpenJobPersistentTasksExecutorTests extends ESTestCase {
         verify(executor).executeOpenJobPipeline(any(), any(), any(), any());
         verify(executor, never()).createOpenJobRetryableAction(any(), any(), any(), any());
     }
-
-    public void testJOB_OPEN_RETRY_TIMEOUT_settingDefaultIs60Minutes() {
-        assertEquals(TimeValue.timeValueMinutes(60), MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getDefault(Settings.EMPTY));
-    }
-
-    // -------------------------------------------------------------------------
-    // Tests for failTask() -- uses UpdateStateRetryableAction
-    // -------------------------------------------------------------------------
 
     public void testFailTask_retriesStateUpdate() throws Exception {
         // failTask() should retry updatePersistentTaskState on transient failure
