@@ -7,6 +7,7 @@
 
 package org.elasticsearch.xpack.ml.utils;
 
+import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.client.internal.transport.NoNodeAvailableException;
@@ -124,7 +125,7 @@ public final class MlRecoverableErrorClassifier {
             return true;
         }
         // ElasticsearchTimeoutException has no specific RestStatus; check by class hierarchy
-        if (cause instanceof org.elasticsearch.ElasticsearchTimeoutException) {
+        if (cause instanceof ElasticsearchTimeoutException) {
             return true;
         }
 

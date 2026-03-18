@@ -20,7 +20,6 @@ import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
-import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.TimeValue;
@@ -254,25 +253,19 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
                 jobTask,
                 jobTaskState,
                 params,
-                ActionListener.wrap(
-                    success -> { /* job is OPENED; state transition handled inside pipeline */ },
-                    e -> {
-                        if (autodetectProcessManager.isNodeDying() == false) {
-                            failTask(jobTask, "failed after retries: " + e.getMessage());
-                        }
+                ActionListener.wrap(success -> { /* job is OPENED; state transition handled inside pipeline */ }, e -> {
+                    if (autodetectProcessManager.isNodeDying() == false) {
+                        failTask(jobTask, "failed after retries: " + e.getMessage());
                     }
-                )
+                })
             ).run();
         } else {
             // User-initiated (new open or fresh state): run pipeline directly (fail-fast on any error)
-            executeOpenJobPipeline(jobTask, jobTaskState, params, ActionListener.wrap(
-                success -> { /* job is OPENED */ },
-                e -> {
-                    if (autodetectProcessManager.isNodeDying() == false) {
-                        failTask(jobTask, e.getMessage());
-                    }
+            executeOpenJobPipeline(jobTask, jobTaskState, params, ActionListener.wrap(success -> { /* job is OPENED */ }, e -> {
+                if (autodetectProcessManager.isNodeDying() == false) {
+                    failTask(jobTask, e.getMessage());
                 }
-            ));
+            }));
         }
     }
 
@@ -372,15 +365,12 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
             if (runningDatafeedId != null) {
                 // This job has a running datafeed attached to it.
                 // In order to prevent gaps in the model we revert to the current snapshot deleting intervening results.
-                revertToCurrentSnapshot(
-                    jobTask,
-                    ActionListener.wrap(response -> openJob(jobTask, listener), e -> {
-                        if (autodetectProcessManager.isNodeDying() == false) {
-                            logger.error(() -> "[" + jobTask.getJobId() + "] failed to revert to current snapshot", e);
-                            listener.onFailure(e);
-                        }
-                    })
-                );
+                revertToCurrentSnapshot(jobTask, ActionListener.wrap(response -> openJob(jobTask, listener), e -> {
+                    if (autodetectProcessManager.isNodeDying() == false) {
+                        logger.error(() -> "[" + jobTask.getJobId() + "] failed to revert to current snapshot", e);
+                        listener.onFailure(e);
+                    }
+                }));
             } else {
                 openJob(jobTask, listener);
             }
@@ -415,10 +405,7 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
                 );
             } else {
                 logger.info("[{}] job has running datafeed task; reverting to current snapshot", jobTask.getJobId());
-                RevertModelSnapshotAction.Request request = new RevertModelSnapshotAction.Request(
-                    jobTask.getJobId(),
-                    jobSnapshotId
-                );
+                RevertModelSnapshotAction.Request request = new RevertModelSnapshotAction.Request(jobTask.getJobId(), jobSnapshotId);
                 request.setForce(true);
                 request.setDeleteInterveningResults(true);
                 request.masterNodeTimeout(PERSISTENT_TASK_MASTER_NODE_TIMEOUT);
@@ -448,17 +435,14 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
             jobTask,
             failedState,
             clusterSettings.get(MachineLearning.JOB_OPEN_RETRY_TIMEOUT),
-            ActionListener.wrap(
-                r -> {
-                    logger.debug("[{}] updated task state to failed", jobId);
-                    stopAssociatedDatafeedForFailedJob(jobId);
-                },
-                e -> {
-                    logger.error(() -> "[" + jobId + "] failed to set task state to failed after retries", e);
-                    jobTask.markAsFailed(e);
-                    stopAssociatedDatafeedForFailedJob(jobId);
-                }
-            )
+            ActionListener.wrap(r -> {
+                logger.debug("[{}] updated task state to failed", jobId);
+                stopAssociatedDatafeedForFailedJob(jobId);
+            }, e -> {
+                logger.error(() -> "[" + jobId + "] failed to set task state to failed after retries", e);
+                jobTask.markAsFailed(e);
+                stopAssociatedDatafeedForFailedJob(jobId);
+            })
         ).run();
     }
 
@@ -569,7 +553,6 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
         GetJobsAction.Request request = new GetJobsAction.Request(jobId).masterNodeTimeout(PERSISTENT_TASK_MASTER_NODE_TIMEOUT);
         executeAsyncWithOrigin(client, ML_ORIGIN, GetJobsAction.INSTANCE, request, jobListener);
     }
-
 
     // Exceptions that occur while the node is dying, i.e. after the JVM has received a SIGTERM,
     // are ignored. Core services will be stopping in response to the SIGTERM and we want the

@@ -54,17 +54,13 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
 
         // Update to 5 minutes and verify the new value is accepted
         ClusterUpdateSettingsRequest updateRequest = new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT);
-        updateRequest.persistentSettings(
-            Settings.builder().put(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey(), "5m").build()
-        );
+        updateRequest.persistentSettings(Settings.builder().put(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey(), "5m").build());
         var updateResponse = client().admin().cluster().updateSettings(updateRequest).actionGet();
         assertTrue(updateResponse.isAcknowledged());
 
         // Restore to default
         ClusterUpdateSettingsRequest resetRequest = new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT);
-        resetRequest.persistentSettings(
-            Settings.builder().putNull(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey()).build()
-        );
+        resetRequest.persistentSettings(Settings.builder().putNull(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey()).build());
         client().admin().cluster().updateSettings(resetRequest).actionGet();
     }
 
@@ -85,10 +81,8 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
         awaitJobOpenedAndAssigned(jobId, null);
 
         // Verify the job is OPENED
-        GetJobsStatsAction.Response statsResponse = client().execute(
-            GetJobsStatsAction.INSTANCE,
-            new GetJobsStatsAction.Request(jobId)
-        ).actionGet();
+        GetJobsStatsAction.Response statsResponse = client().execute(GetJobsStatsAction.INSTANCE, new GetJobsStatsAction.Request(jobId))
+            .actionGet();
         assertThat(statsResponse.getResponse().results().get(0).getState(), equalTo(JobState.OPENED));
 
         // Close the job
@@ -96,10 +90,8 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
 
         // Verify the job is CLOSED
         assertBusy(() -> {
-            GetJobsStatsAction.Response stats = client().execute(
-                GetJobsStatsAction.INSTANCE,
-                new GetJobsStatsAction.Request(jobId)
-            ).actionGet();
+            GetJobsStatsAction.Response stats = client().execute(GetJobsStatsAction.INSTANCE, new GetJobsStatsAction.Request(jobId))
+                .actionGet();
             assertThat(stats.getResponse().results().get(0).getState(), equalTo(JobState.CLOSED));
         }, 30, TimeUnit.SECONDS);
     }
@@ -140,10 +132,8 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
         awaitJobOpenedAndAssigned(jobId, null);
 
         // Verify the job is open and not stuck in a failure state
-        GetJobsStatsAction.Response stats = client().execute(
-            GetJobsStatsAction.INSTANCE,
-            new GetJobsStatsAction.Request(jobId)
-        ).actionGet();
+        GetJobsStatsAction.Response stats = client().execute(GetJobsStatsAction.INSTANCE, new GetJobsStatsAction.Request(jobId))
+            .actionGet();
         assertThat(stats.getResponse().results().get(0).getState(), equalTo(JobState.OPENED));
     }
 }
