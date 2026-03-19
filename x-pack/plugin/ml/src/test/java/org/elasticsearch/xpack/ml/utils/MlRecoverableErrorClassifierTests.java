@@ -10,6 +10,7 @@ package org.elasticsearch.xpack.ml.utils;
 import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.ResourceNotFoundException;
+import org.elasticsearch.action.NoShardAvailableActionException;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.ShardSearchFailure;
 import org.elasticsearch.client.internal.transport.NoNodeAvailableException;
@@ -24,6 +25,8 @@ import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.discovery.MasterNotDiscoveredException;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.engine.VersionConflictEngineException;
+import org.elasticsearch.index.shard.IllegalIndexShardStateException;
+import org.elasticsearch.index.shard.IndexShardState;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.indices.IndexPrimaryShardNotAllocatedException;
 import org.elasticsearch.node.NodeClosedException;
@@ -56,6 +59,16 @@ public class MlRecoverableErrorClassifierTests extends ESTestCase {
 
     public void testIndexPrimaryShardNotAllocatedException_isRecoverable() {
         var e = new IndexPrimaryShardNotAllocatedException(new Index("my-index", "uuid"));
+        assertTrue(MlRecoverableErrorClassifier.isRecoverable(e));
+    }
+
+    public void testNoShardAvailableActionException_isRecoverable() {
+        var e = new NoShardAvailableActionException(new ShardId("my-index", "uuid", 0));
+        assertTrue(MlRecoverableErrorClassifier.isRecoverable(e));
+    }
+
+    public void testIllegalIndexShardStateException_isRecoverable() {
+        var e = new IllegalIndexShardStateException(new ShardId("my-index", "uuid", 0), IndexShardState.RECOVERING, "shard not ready");
         assertTrue(MlRecoverableErrorClassifier.isRecoverable(e));
     }
 

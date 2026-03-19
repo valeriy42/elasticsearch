@@ -212,6 +212,9 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
             .setSettings(Settings.builder().put("index.routing.allocation.include.ml-indices", "state-and-results,config").build())
             .get();
 
+        // Wait for shards to allocate so GetJobsStats (used by awaitJobOpenedAndAssigned) can search the indices
+        ensureYellow();
+
         awaitJobOpenedAndAssigned(jobId, null);
 
         GetJobsStatsAction.Response stats = client().execute(GetJobsStatsAction.INSTANCE, new GetJobsStatsAction.Request(jobId))

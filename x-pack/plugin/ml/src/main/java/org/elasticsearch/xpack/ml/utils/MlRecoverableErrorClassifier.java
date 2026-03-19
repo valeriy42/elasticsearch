@@ -9,6 +9,7 @@ package org.elasticsearch.xpack.ml.utils;
 
 import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.ExceptionsHelper;
+import org.elasticsearch.action.NoShardAvailableActionException;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.client.internal.transport.NoNodeAvailableException;
 import org.elasticsearch.cluster.NotMasterException;
@@ -18,6 +19,7 @@ import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.discovery.MasterNotDiscoveredException;
 import org.elasticsearch.index.engine.VersionConflictEngineException;
+import org.elasticsearch.index.shard.IllegalIndexShardStateException;
 import org.elasticsearch.indices.IndexPrimaryShardNotAllocatedException;
 import org.elasticsearch.node.NodeClosedException;
 import org.elasticsearch.rest.RestStatus;
@@ -71,6 +73,12 @@ public final class MlRecoverableErrorClassifier {
             return false;
         }
 
+        // IllegalIndexShardStateException: shard in wrong state (e.g. RECOVERING) – transient; retry when shard is ready.
+        // Overrides NOT_FOUND status; TransportActions treats it as shard-not-available (retryable).
+        if (cause instanceof IllegalIndexShardStateException) {
+            return true;
+        }
+
         // Status-based irrecoverable check: covers all ElasticsearchStatusException variants with bad statuses
         RestStatus restStatus = status(cause);
         if (IRRECOVERABLE_REST_STATUSES.contains(restStatus)) {
@@ -79,6 +87,9 @@ public final class MlRecoverableErrorClassifier {
 
         // Layer 1: Data Plane -- shard/search failures that resolve when shards recover
         if (cause instanceof SearchPhaseExecutionException) {
+            return true;
+        }
+        if (cause instanceof NoShardAvailableActionException) {
             return true;
         }
         if (cause instanceof IndexPrimaryShardNotAllocatedException) {
