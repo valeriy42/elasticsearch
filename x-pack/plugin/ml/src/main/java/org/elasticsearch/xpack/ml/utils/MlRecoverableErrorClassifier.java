@@ -18,6 +18,7 @@ import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.discovery.MasterNotDiscoveredException;
 import org.elasticsearch.index.engine.VersionConflictEngineException;
+import org.elasticsearch.indices.IndexPrimaryShardNotAllocatedException;
 import org.elasticsearch.node.NodeClosedException;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.tasks.TaskCancelledException;
@@ -78,6 +79,9 @@ public final class MlRecoverableErrorClassifier {
 
         // Layer 1: Data Plane -- shard/search failures that resolve when shards recover
         if (cause instanceof SearchPhaseExecutionException) {
+            return true;
+        }
+        if (cause instanceof IndexPrimaryShardNotAllocatedException) {
             return true;
         }
 

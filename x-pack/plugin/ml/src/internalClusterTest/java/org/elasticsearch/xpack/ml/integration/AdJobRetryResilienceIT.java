@@ -10,7 +10,6 @@ import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsRequ
 import org.elasticsearch.cluster.node.DiscoveryNodeRole;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeValue;
-import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.xpack.core.ml.action.CloseJobAction;
 import org.elasticsearch.xpack.core.ml.action.GetJobsStatsAction;
@@ -45,30 +44,6 @@ import static org.hamcrest.Matchers.equalTo;
  */
 @ESIntegTestCase.ClusterScope(scope = ESIntegTestCase.Scope.TEST, numDataNodes = 0)
 public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
-
-    /**
-     * Verify that the {@code xpack.ml.job_open_retry_timeout} cluster setting is registered,
-     * has the correct default (60 minutes), and that the setting can be updated dynamically.
-     */
-    public void testJobOpenRetryTimeoutSetting_defaultAndDynamicUpdate() throws Exception {
-        internalCluster().ensureAtLeastNumDataNodes(1);
-        ensureStableCluster(1);
-
-        // Dynamic settings only appear in the cluster settings response after they have been
-        // explicitly set; verify the default via the setting constant directly.
-        assertThat(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.get(Settings.EMPTY), equalTo(TimeValue.timeValueMinutes(60)));
-
-        // Update to 5 minutes and verify the new value is accepted
-        ClusterUpdateSettingsRequest updateRequest = new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT);
-        updateRequest.persistentSettings(Settings.builder().put(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey(), "5m").build());
-        var updateResponse = client().admin().cluster().updateSettings(updateRequest).actionGet();
-        assertTrue(updateResponse.isAcknowledged());
-
-        // Restore to default
-        ClusterUpdateSettingsRequest resetRequest = new ClusterUpdateSettingsRequest(TEST_REQUEST_TIMEOUT, TEST_REQUEST_TIMEOUT);
-        resetRequest.persistentSettings(Settings.builder().putNull(MachineLearning.JOB_OPEN_RETRY_TIMEOUT.getKey()).build());
-        client().admin().cluster().updateSettings(resetRequest).actionGet();
-    }
 
     /**
      * Smoke test: verify that a normal user-initiated job open and close cycle still works

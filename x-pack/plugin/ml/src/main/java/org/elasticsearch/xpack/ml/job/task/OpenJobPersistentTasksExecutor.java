@@ -398,13 +398,7 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
                 request.setSkipJobStateValidation(true);
                 request.masterNodeTimeout(PERSISTENT_TASK_MASTER_NODE_TIMEOUT);
                 request.ackTimeout(PERSISTENT_TASK_MASTER_NODE_TIMEOUT);
-                executeAsyncWithOrigin(
-                    client,
-                    ML_ORIGIN,
-                    ResetJobAction.INSTANCE,
-                    request,
-                    ActionListener.wrap(response -> listener.onResponse(true), listener::onFailure)
-                );
+                executeAsyncWithOrigin(client, ML_ORIGIN, ResetJobAction.INSTANCE, request, listener.map(response -> true));
             } else {
                 logger.info("[{}] job has running datafeed task; reverting to current snapshot", jobTask.getJobId());
                 RevertModelSnapshotAction.Request request = new RevertModelSnapshotAction.Request(jobTask.getJobId(), jobSnapshotId);
@@ -412,13 +406,7 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
                 request.setDeleteInterveningResults(true);
                 request.masterNodeTimeout(PERSISTENT_TASK_MASTER_NODE_TIMEOUT);
                 request.ackTimeout(PERSISTENT_TASK_MASTER_NODE_TIMEOUT);
-                executeAsyncWithOrigin(
-                    client,
-                    ML_ORIGIN,
-                    RevertModelSnapshotAction.INSTANCE,
-                    request,
-                    ActionListener.wrap(response -> listener.onResponse(true), listener::onFailure)
-                );
+                executeAsyncWithOrigin(client, ML_ORIGIN, RevertModelSnapshotAction.INSTANCE, request, listener.map(response -> true));
             }
         }, error -> listener.onFailure(ExceptionsHelper.serverError("[{}] error getting job", error, jobTask.getJobId())));
 
@@ -709,7 +697,7 @@ public class OpenJobPersistentTasksExecutor extends AbstractJobPersistentTasksEx
                 TimeValue.timeValueMinutes(5),
                 clusterSettings.get(MachineLearning.JOB_OPEN_RETRY_TIMEOUT),
                 listener,
-                client.threadPool().executor(MachineLearning.UTILITY_THREAD_POOL_NAME)
+                client.threadPool().generic()
             );
             this.jobTask = Objects.requireNonNull(jobTask);
             this.jobTaskState = jobTaskState;

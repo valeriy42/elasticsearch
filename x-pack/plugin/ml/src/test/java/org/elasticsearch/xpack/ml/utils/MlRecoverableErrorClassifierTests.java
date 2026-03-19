@@ -22,8 +22,10 @@ import org.elasticsearch.common.breaker.CircuitBreaker;
 import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.discovery.MasterNotDiscoveredException;
+import org.elasticsearch.index.Index;
 import org.elasticsearch.index.engine.VersionConflictEngineException;
 import org.elasticsearch.index.shard.ShardId;
+import org.elasticsearch.indices.IndexPrimaryShardNotAllocatedException;
 import org.elasticsearch.node.NodeClosedException;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.tasks.TaskCancelledException;
@@ -49,6 +51,11 @@ public class MlRecoverableErrorClassifierTests extends ESTestCase {
 
     public void testElasticsearchStatusException_serviceUnavailable_isRecoverable() {
         var e = new ElasticsearchStatusException("service unavailable", RestStatus.SERVICE_UNAVAILABLE);
+        assertTrue(MlRecoverableErrorClassifier.isRecoverable(e));
+    }
+
+    public void testIndexPrimaryShardNotAllocatedException_isRecoverable() {
+        var e = new IndexPrimaryShardNotAllocatedException(new Index("my-index", "uuid"));
         assertTrue(MlRecoverableErrorClassifier.isRecoverable(e));
     }
 

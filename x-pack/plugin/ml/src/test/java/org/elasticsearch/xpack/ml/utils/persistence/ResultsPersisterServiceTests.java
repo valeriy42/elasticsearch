@@ -16,8 +16,10 @@ import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.bulk.TransportBulkAction;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
+import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.search.ShardSearchFailure;
 import org.elasticsearch.action.search.TransportSearchAction;
 import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.client.internal.OriginSettingClient;
@@ -100,10 +102,18 @@ public class ResultsPersisterServiceTests extends ESTestCase {
             true
         )
     );
+    /**
+     * Recoverable bulk failure (SearchPhaseExecutionException) used by tests that expect retry.
+     * Plain Exception would be irrecoverable per MlRecoverableErrorClassifier.
+     */
     private static final BulkItemResponse BULK_ITEM_RESPONSE_FAILURE = BulkItemResponse.failure(
         2,
         DocWriteRequest.OpType.INDEX,
-        new BulkItemResponse.Failure("my-index", "fail", new Exception("boom"))
+        new BulkItemResponse.Failure(
+            "my-index",
+            "fail",
+            new SearchPhaseExecutionException("query", "partial results", ShardSearchFailure.EMPTY_ARRAY)
+        )
     );
 
     private Client client;

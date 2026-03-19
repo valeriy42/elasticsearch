@@ -758,6 +758,7 @@ public class MachineLearning extends Plugin
         "xpack.ml.job_open_retry_timeout",
         TimeValue.timeValueMinutes(60),
         TimeValue.timeValueMinutes(1),
+        TimeValue.timeValueDays(365),
         Property.Dynamic,
         Setting.Property.NodeScope
     );
