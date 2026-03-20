@@ -351,6 +351,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.RestEsqlIT
   method: testForceSleepsProfile {SYNC}
   issue: https://github.com/elastic/elasticsearch/issues/144619
+- class: org.elasticsearch.xpack.inference.integration.AuthorizationTaskExecutorIT
+  method: testCreatesEisChatCompletionEndpoint
+  issue: https://github.com/elastic/elasticsearch/issues/144671
 
 # Examples:
 #
