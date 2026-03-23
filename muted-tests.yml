@@ -391,6 +391,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.mixed.MixedClusterEsqlSpecIT
   method: test {csv-spec:external-basic.enrichRemote}
   issue: https://github.com/elastic/elasticsearch/issues/144805
+- class: org.elasticsearch.xpack.esql.CsvTests
+  method: test {csv-spec:external-basic.operatorLikeRLike}
+  issue: https://github.com/elastic/elasticsearch/issues/144807
 
 # Examples:
 #
