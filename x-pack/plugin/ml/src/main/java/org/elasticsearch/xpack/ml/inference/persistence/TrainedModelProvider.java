@@ -14,6 +14,8 @@ import org.elasticsearch.ResourceAlreadyExistsException;
 import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.DocWriteRequest;
+import org.elasticsearch.action.NoShardAvailableActionException;
+import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthRequest;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
 import org.elasticsearch.action.admin.indices.refresh.RefreshAction;
@@ -30,6 +32,7 @@ import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.TransportSearchAction;
 import org.elasticsearch.action.support.IndicesOptions;
+import org.elasticsearch.action.support.RetryableAction;
 import org.elasticsearch.action.support.SubscribableListener;
 import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.action.support.broadcast.BroadcastResponse;
@@ -1058,6 +1061,28 @@ public class TrainedModelProvider {
     }
 
     public void getInferenceStats(String[] modelIds, @Nullable TaskId parentTaskId, ActionListener<List<InferenceStats>> listener) {
+        new RetryableAction<List<InferenceStats>>(
+            logger,
+            client.threadPool(),
+            TimeValue.timeValueMillis(200),
+            TimeValue.timeValueSeconds(10),
+            listener,
+            client.threadPool().executor(MachineLearning.UTILITY_THREAD_POOL_NAME)
+        ) {
+            @Override
+            public void tryAction(ActionListener<List<InferenceStats>> retryListener) {
+                getInferenceStatsOnce(modelIds, parentTaskId, retryListener);
+            }
+
+            @Override
+            public boolean shouldRetry(Exception e) {
+                Throwable cause = ExceptionsHelper.unwrapCause(e);
+                return cause instanceof SearchPhaseExecutionException || cause instanceof NoShardAvailableActionException;
+            }
+        }.run();
+    }
+
+    private void getInferenceStatsOnce(String[] modelIds, @Nullable TaskId parentTaskId, ActionListener<List<InferenceStats>> listener) {
 
         SubscribableListener.<ClusterHealthResponse>newForked((delegate) -> {
             // first wait for the index to be available
