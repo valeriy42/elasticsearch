@@ -10,6 +10,7 @@ import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsRequ
 import org.elasticsearch.cluster.node.DiscoveryNodeRole;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeValue;
+import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.xpack.core.ml.action.CloseJobAction;
 import org.elasticsearch.xpack.core.ml.action.GetJobsStatsAction;
@@ -49,7 +50,7 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
      * Smoke test: verify that a normal user-initiated job open and close cycle still works
      * correctly after the retry resilience changes (no regression).
      */
-    public void testNormalJobOpenClose_smokTest() throws Exception {
+    public void testNormalJobOpenClose_smokeTest() throws Exception {
         internalCluster().ensureAtLeastNumDataNodes(1);
         ensureStableCluster(1);
 
@@ -212,8 +213,9 @@ public class AdJobRetryResilienceIT extends BaseMlIntegTestCase {
             .setSettings(Settings.builder().put("index.routing.allocation.include.ml-indices", "state-and-results,config").build())
             .get();
 
-        // Wait for shards to allocate so GetJobsStats (used by awaitJobOpenedAndAssigned) can search the indices
-        ensureYellow();
+        // Wait for shards to allocate on the config node so GetJobsStats (used by awaitJobOpenedAndAssigned) can search the indices.
+        // Use a longer timeout than default ensureYellow (30s); on CI shard relocation after 2 node stops can take longer.
+        ensureGreen(TimeValue.timeValueMinutes(2), ".ml-state", ".ml-anomalies-shared-000001");
 
         awaitJobOpenedAndAssigned(jobId, null);
 
