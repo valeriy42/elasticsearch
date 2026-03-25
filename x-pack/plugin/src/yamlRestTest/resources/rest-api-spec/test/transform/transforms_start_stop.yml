@@ -248,6 +248,7 @@ teardown:
   - do:
       transform.start_transform:
         transform_id: "airline-transform-start-stop-continuous"
+        timeout: "10m"
   - match: { acknowledged: true }
 
   - do:
@@ -274,6 +275,7 @@ teardown:
   - do:
       transform.start_transform:
         transform_id: "airline-transform-start-stop-continuous"
+        timeout: "10m"
   - match: { acknowledged: true }
 
   - do:
