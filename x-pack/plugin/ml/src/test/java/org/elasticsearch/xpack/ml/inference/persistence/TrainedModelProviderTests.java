@@ -589,7 +589,12 @@ public class TrainedModelProviderTests extends ESTestCase {
                                     null,
                                     new SearchPhaseExecutionException("query", "all shards failed", ShardSearchFailure.EMPTY_ARRAY)
                                 ) };
-                            listener.onResponse((Response) new MultiSearchResponse(items, 0L));
+                            var msResponse = new MultiSearchResponse(items, 0L);
+                            try {
+                                listener.onResponse((Response) msResponse);
+                            } finally {
+                                msResponse.decRef();
+                            }
                         } else {
                             var items = new MultiSearchResponse.Item[multiSearchRequest.requests().size()];
                             for (int i = 0; i < items.length; i++) {
@@ -598,7 +603,12 @@ public class TrainedModelProviderTests extends ESTestCase {
                                     null
                                 );
                             }
-                            listener.onResponse((Response) new MultiSearchResponse(items, 0L));
+                            var msResponse = new MultiSearchResponse(items, 0L);
+                            try {
+                                listener.onResponse((Response) msResponse);
+                            } finally {
+                                msResponse.decRef();
+                            }
                         }
                     }
                 }
@@ -639,7 +649,12 @@ public class TrainedModelProviderTests extends ESTestCase {
                         if (multiSearchCallCount.incrementAndGet() == 1) {
                             var items = new MultiSearchResponse.Item[] {
                                 new MultiSearchResponse.Item(null, new NoShardAvailableActionException(null, "no shard available")) };
-                            listener.onResponse((Response) new MultiSearchResponse(items, 0L));
+                            var msResponse = new MultiSearchResponse(items, 0L);
+                            try {
+                                listener.onResponse((Response) msResponse);
+                            } finally {
+                                msResponse.decRef();
+                            }
                         } else {
                             var items = new MultiSearchResponse.Item[multiSearchRequest.requests().size()];
                             for (int i = 0; i < items.length; i++) {
@@ -648,7 +663,12 @@ public class TrainedModelProviderTests extends ESTestCase {
                                     null
                                 );
                             }
-                            listener.onResponse((Response) new MultiSearchResponse(items, 0L));
+                            var msResponse = new MultiSearchResponse(items, 0L);
+                            try {
+                                listener.onResponse((Response) msResponse);
+                            } finally {
+                                msResponse.decRef();
+                            }
                         }
                     }
                 }
@@ -688,7 +708,12 @@ public class TrainedModelProviderTests extends ESTestCase {
                         multiSearchCallCount.incrementAndGet();
                         var items = new MultiSearchResponse.Item[] {
                             new MultiSearchResponse.Item(null, new IllegalArgumentException("bad request")) };
-                        listener.onResponse((Response) new MultiSearchResponse(items, 0L));
+                        var msResponse = new MultiSearchResponse(items, 0L);
+                        try {
+                            listener.onResponse((Response) msResponse);
+                        } finally {
+                            msResponse.decRef();
+                        }
                     }
                 }
             };
