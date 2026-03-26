@@ -366,6 +366,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidBigDecimalFromFloatWithoutCasting
   issue: https://github.com/elastic/elasticsearch/issues/145036
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingValidDoubleWithoutCasting
+  issue: https://github.com/elastic/elasticsearch/issues/145046
 
 # Examples:
 #
