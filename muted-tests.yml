@@ -372,6 +372,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidFloatWithCasting
   issue: https://github.com/elastic/elasticsearch/issues/145047
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingValidIntegerWithoutCasting
+  issue: https://github.com/elastic/elasticsearch/issues/145048
 
 # Examples:
 #
