@@ -15,7 +15,6 @@ import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.DocWriteRequest;
 import org.elasticsearch.action.NoShardAvailableActionException;
-import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthRequest;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
 import org.elasticsearch.action.admin.indices.refresh.RefreshAction;
@@ -28,6 +27,7 @@ import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.TransportIndexAction;
 import org.elasticsearch.action.search.MultiSearchRequest;
 import org.elasticsearch.action.search.MultiSearchResponse;
+import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.TransportSearchAction;
@@ -132,6 +132,9 @@ public class TrainedModelProvider {
     private static final int COMPRESSED_MODEL_CHUNK_SIZE = 16 * 1024 * 1024;
     private static final int MAX_NUM_DEFINITION_DOCS = 100;
     private static final int MAX_COMPRESSED_MODEL_SIZE = COMPRESSED_MODEL_CHUNK_SIZE * MAX_NUM_DEFINITION_DOCS;
+
+    private static final TimeValue STATS_RETRY_INITIAL_DELAY = TimeValue.timeValueMillis(200);
+    private static final TimeValue STATS_RETRY_TIMEOUT = TimeValue.timeValueSeconds(10);
 
     private static final Logger logger = LogManager.getLogger(TrainedModelProvider.class);
     private final Client client;
@@ -1064,8 +1067,8 @@ public class TrainedModelProvider {
         new RetryableAction<List<InferenceStats>>(
             logger,
             client.threadPool(),
-            TimeValue.timeValueMillis(200),
-            TimeValue.timeValueSeconds(10),
+            STATS_RETRY_INITIAL_DELAY,
+            STATS_RETRY_TIMEOUT,
             listener,
             client.threadPool().executor(MachineLearning.UTILITY_THREAD_POOL_NAME)
         ) {
@@ -1076,8 +1079,11 @@ public class TrainedModelProvider {
 
             @Override
             public boolean shouldRetry(Exception e) {
-                Throwable cause = ExceptionsHelper.unwrapCause(e);
-                return cause instanceof SearchPhaseExecutionException || cause instanceof NoShardAvailableActionException;
+                return org.elasticsearch.ExceptionsHelper.unwrap(
+                    e,
+                    SearchPhaseExecutionException.class,
+                    NoShardAvailableActionException.class
+                ) != null;
             }
         }.run();
     }
@@ -1130,7 +1136,7 @@ public class TrainedModelProvider {
                                         modelIndex++;
                                         continue;
                                     }
-                                    logger.error(
+                                    logger.warn(
                                         () -> "[" + Strings.arrayToCommaDelimitedString(modelIds) + "] search failed for models",
                                         response.getFailure()
                                     );
