@@ -378,6 +378,9 @@ tests:
 - class: org.elasticsearch.backwards.RareTermsIT
   method: testSingleValuedString
   issue: https://github.com/elastic/elasticsearch/issues/145049
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingValidDoubleWithCasting
+  issue: https://github.com/elastic/elasticsearch/issues/145050
 
 # Examples:
 #
