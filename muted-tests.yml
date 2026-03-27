@@ -366,6 +366,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidDoubleWithCasting
   issue: https://github.com/elastic/elasticsearch/issues/145050
+- class: org.elasticsearch.index.codec.vectors.diskbbq.next.ESNextDiskBBQVectorsFormatTests
+  method: testIndexSortOnFlush
+  issue: https://github.com/elastic/elasticsearch/issues/145071
 
 # Examples:
 #
