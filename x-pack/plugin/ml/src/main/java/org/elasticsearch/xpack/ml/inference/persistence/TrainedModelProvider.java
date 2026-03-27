@@ -1079,6 +1079,11 @@ public class TrainedModelProvider {
 
             @Override
             public boolean shouldRetry(Exception e) {
+                // Only retry on transient shard-level search failures from the MultiSearchRequest.
+                // ClusterHealthRequest failures (e.g. ElasticsearchTimeoutException when the index
+                // is not yellow within 2 s) are intentionally excluded: the health check is itself
+                // a wait-for-index-availability step, and a timeout there signals a persistent index
+                // problem rather than the momentary shard reassignment we are trying to ride out.
                 return org.elasticsearch.ExceptionsHelper.unwrap(
                     e,
                     SearchPhaseExecutionException.class,
