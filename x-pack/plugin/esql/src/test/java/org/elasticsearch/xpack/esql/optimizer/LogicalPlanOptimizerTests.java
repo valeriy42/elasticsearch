@@ -162,7 +162,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -10984,7 +10983,7 @@ public class LogicalPlanOptimizerTests extends AbstractLogicalPlanOptimizerTests
             Map.of("ts_index", IndexMode.TIME_SERIES, "standard_index", IndexMode.STANDARD),
             Map.of(),
             Map.of(),
-            Set.of()
+            Map.of()
         );
         var testAnalyzer = EsqlTestUtils.analyzer().addIndex(IndexResolution.valid(mixedIndex));
         var plan = logicalOptimizerWithLatestVersion.optimize(testAnalyzer.query("TS * | STATS count(events_received)"));
