@@ -375,6 +375,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecForceStoredLoadingIT
   method: test {csv-spec:approximation.Approximated column and null}
   issue: https://github.com/elastic/elasticsearch/issues/145248
+- class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecForceStoredLoadingIT
+  method: test {csv-spec:approximation.Warn on no stats}
+  issue: https://github.com/elastic/elasticsearch/issues/145249
 
 # Examples:
 #
