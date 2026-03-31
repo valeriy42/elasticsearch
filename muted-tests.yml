@@ -387,6 +387,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.expression.function.scalar.math.RoundToTests
   method: testFold {TestCase=<int, 15 fixed-interval ints>}
   issue: https://github.com/elastic/elasticsearch/issues/145254
+- class: org.elasticsearch.xpack.esql.expression.function.scalar.math.RoundToTests
+  method: testFold {TestCase=<long, 15 fixed-interval longs>}
+  issue: https://github.com/elastic/elasticsearch/issues/145255
 
 # Examples:
 #
