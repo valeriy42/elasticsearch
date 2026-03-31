@@ -402,6 +402,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testNoInfiniteRecursiveGetObjectCalls
   issue: https://github.com/elastic/elasticsearch/issues/145269
+- class: org.elasticsearch.xpack.inference.action.filter.ShardBulkInferenceActionFilterIT
+  method: testRestart {p0=true p1=true}
+  issue: https://github.com/elastic/elasticsearch/issues/145273
 
 # Examples:
 #
