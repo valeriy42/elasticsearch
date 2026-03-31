@@ -417,6 +417,9 @@ tests:
 - class: org.elasticsearch.repositories.azure.AzureBlobContainerStatsTests
   method: testRetriesAndOperationsAreTrackedSeparately
   issue: https://github.com/elastic/elasticsearch/issues/145281
+- class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecForceStoredLoadingIT
+  method: test {csv-spec:approximation.Approximate stats on large multi-valued data}
+  issue: https://github.com/elastic/elasticsearch/issues/145282
 
 # Examples:
 #
