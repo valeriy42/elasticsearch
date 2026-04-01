@@ -396,6 +396,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testScalarOnDates_DateNanos
   issue: https://github.com/elastic/elasticsearch/issues/145485
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testMultiValueFieldWithMultiValueLeniencyEnabled
+  issue: https://github.com/elastic/elasticsearch/issues/145486
 
 # Examples:
 #
