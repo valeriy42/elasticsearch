@@ -387,6 +387,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecForceStoredLoadingIT
   method: test {csv-spec:approximation.Exact stats on small multi-valued data}
   issue: https://github.com/elastic/elasticsearch/issues/145251
+- class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecForceStoredLoadingIT
+  method: test {csv-spec:approximation.Warn on max}
+  issue: https://github.com/elastic/elasticsearch/issues/145218
 
 # Examples:
 #
