@@ -387,6 +387,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.multi_node.ExternalDistributedStressIT
   method: testManyUniformSplits
   issue: https://github.com/elastic/elasticsearch/issues/145476
+- class: org.elasticsearch.xpack.esql.qa.multi_node.ExternalDistributedStressIT
+  method: testManyUniformSplitsWithAggregation
+  issue: https://github.com/elastic/elasticsearch/issues/145477
 
 # Examples:
 #
