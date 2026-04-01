@@ -390,6 +390,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.multi_node.ExternalDistributedStressIT
   method: testManyUniformSplitsWithAggregation
   issue: https://github.com/elastic/elasticsearch/issues/145477
+- class: org.elasticsearch.xpack.esql.qa.multi_node.ExternalDistributedStressIT
+  method: testManyUniformSplitsWithTopN
+  issue: https://github.com/elastic/elasticsearch/issues/145478
 
 # Examples:
 #
