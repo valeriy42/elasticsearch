@@ -381,6 +381,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.multi_node.GenerativeIT
   method: test
   issue: https://github.com/elastic/elasticsearch/issues/144587
+- class: org.elasticsearch.xpack.esql.qa.multi_node.ExternalDistributedStressIT
+  method: testHeterogeneousSplitSizes
+  issue: https://github.com/elastic/elasticsearch/issues/145475
 
 # Examples:
 #
