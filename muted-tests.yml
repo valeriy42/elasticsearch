@@ -378,6 +378,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidLongWithCasting
   issue: https://github.com/elastic/elasticsearch/issues/145435
+- class: org.elasticsearch.xpack.esql.CsvIT
+  method: test {csv-spec:stats.sumWithOverflowRow}
+  issue: https://github.com/elastic/elasticsearch/issues/145437
 
 # Examples:
 #
