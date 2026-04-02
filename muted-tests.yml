@@ -387,6 +387,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidByteWithCasting
   issue: https://github.com/elastic/elasticsearch/issues/145564
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingValidBigDecimalFromByteWithoutCasting
+  issue: https://github.com/elastic/elasticsearch/issues/145572
 
 # Examples:
 #
