@@ -410,6 +410,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
   method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.Filter}
   issue: https://github.com/elastic/elasticsearch/issues/145583
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testTransform {class org.elasticsearch.xpack.esql.plan.physical.ExchangeSinkExec}
+  issue: https://github.com/elastic/elasticsearch/issues/145584
 
 # Examples:
 #
