@@ -434,6 +434,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.plan.logical.CommandLicenseTests
   method: testLicenseCheck
   issue: https://github.com/elastic/elasticsearch/issues/145600
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testTransform {class org.elasticsearch.xpack.esql.plan.logical.local.ResolvingProject}
+  issue: https://github.com/elastic/elasticsearch/issues/145601
 
 # Examples:
 #
