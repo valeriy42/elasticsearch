@@ -417,6 +417,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvTests
   method: test {csv-spec:where-like.negatedRLikeWithLowerTurnedInsensitive}
   issue: https://github.com/elastic/elasticsearch/issues/145520
+- class: org.elasticsearch.xpack.esql.CsvTests
+  method: test {csv-spec:dissect.nullInput}
+  issue: https://github.com/elastic/elasticsearch/issues/145521
 
 # Examples:
 #
