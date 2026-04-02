@@ -440,6 +440,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
   method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.promql.PromqlCommand}
   issue: https://github.com/elastic/elasticsearch/issues/145603
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.local.ResolvingProject}
+  issue: https://github.com/elastic/elasticsearch/issues/145604
 
 # Examples:
 #
