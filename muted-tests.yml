@@ -422,6 +422,9 @@ tests:
 - class: org.elasticsearch.index.codec.tsdb.es819.ES819TSDBDocValuesFormatTests
   method: testBlockWiseBinarySmallValues
   issue: https://github.com/elastic/elasticsearch/issues/145635
+- class: org.elasticsearch.repositories.azure.AzureBlobContainerRetriesTests
+  method: testWriteLargeBlob
+  issue: https://github.com/elastic/elasticsearch/issues/145654
 
 # Examples:
 #
