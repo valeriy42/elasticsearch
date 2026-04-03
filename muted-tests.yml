@@ -425,6 +425,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:spatial_shapes.convertFromStringParseError}
   issue: https://github.com/elastic/elasticsearch/issues/145655
+- class: org.elasticsearch.index.codec.tsdb.es819.TSDBDocValuesFormatSingleNodeTests
+  method: testTSDBWithMultiplePrefixByte
+  issue: https://github.com/elastic/elasticsearch/issues/145668
 
 # Examples:
 #
