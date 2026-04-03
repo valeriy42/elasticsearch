@@ -434,6 +434,9 @@ tests:
 - class: org.elasticsearch.xpack.autoscaling.storage.ReactiveStorageIT
   method: testScaleWhileShrinking
   issue: https://github.com/elastic/elasticsearch/issues/145669
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testScalarOnDates
+  issue: https://github.com/elastic/elasticsearch/issues/145667
 
 # Examples:
 #
