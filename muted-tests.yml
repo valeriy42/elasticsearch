@@ -428,6 +428,9 @@ tests:
 - class: org.elasticsearch.index.codec.tsdb.es819.TSDBDocValuesFormatSingleNodeTests
   method: testTSDBWithMultiplePrefixByte
   issue: https://github.com/elastic/elasticsearch/issues/145668
+- class: org.elasticsearch.xpack.core.common.notifications.AbstractAuditorTests
+  method: testRecreateTemplateWhenDeleted
+  issue: https://github.com/elastic/elasticsearch/issues/123232
 
 # Examples:
 #
