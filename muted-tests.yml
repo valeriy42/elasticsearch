@@ -409,6 +409,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.action.MetricsAndTSInfoIT
   method: testTsInfo
   issue: https://github.com/elastic/elasticsearch/issues/145720
+- class: org.elasticsearch.xpack.esql.action.MetricsAndTSInfoIT
+  method: testMetricsInfo
+  issue: https://github.com/elastic/elasticsearch/issues/145719
 
 # Examples:
 #
