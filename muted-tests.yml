@@ -380,6 +380,9 @@ tests:
 - class: org.elasticsearch.xpack.security.failurestore.FailureStoreSecurityRestIT
   method: testWatcher
   issue: https://github.com/elastic/elasticsearch/issues/145928
+- class: org.elasticsearch.xpack.sql.qa.jdbc.multi_node.MultiNodeJdbcFetchSizeIT
+  method: testNestedDocuments
+  issue: https://github.com/elastic/elasticsearch/issues/145930
 
 # Examples:
 #
