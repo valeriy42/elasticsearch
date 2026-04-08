@@ -371,6 +371,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingInvalidByteFromUnsignedLong
   issue: https://github.com/elastic/elasticsearch/issues/145895
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
+  method: testGettingInvalidShortFromUnsignedLong
+  issue: https://github.com/elastic/elasticsearch/issues/145899
 
 # Examples:
 #
