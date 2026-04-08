@@ -300,6 +300,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.multi_node.GenerativeUnmappedLoadIT
   method: test
   issue: https://github.com/elastic/elasticsearch/issues/145900
+- class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcWarningsIT
+  method: testSingleDeprecationWarning
+  issue: https://github.com/elastic/elasticsearch/issues/145933
 
 # Examples:
 #
