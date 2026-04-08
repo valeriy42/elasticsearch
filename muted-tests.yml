@@ -362,6 +362,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.spatial.SpatialCentroidAggregationIT
   method: testStCentroidAggregationWithShapes
   issue: https://github.com/elastic/elasticsearch/issues/145883
+- class: org.elasticsearch.xpack.esql.action.CrossClusterQueryAllCombinationsSkipUnavailableIT
+  method: test
+  issue: https://github.com/elastic/elasticsearch/issues/145884
 
 # Examples:
 #
