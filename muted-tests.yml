@@ -374,6 +374,9 @@ tests:
 - class: org.elasticsearch.xpack.sql.qa.jdbc.single_node.SingleNodeJdbcResultSetIT
   method: testGettingValidBigIntegerWithoutCasting
   issue: https://github.com/elastic/elasticsearch/issues/145926
+- class: org.elasticsearch.xpack.esql.action.EsqlDisruptionIT
+  method: testFromStatsProjectAgg
+  issue: https://github.com/elastic/elasticsearch/issues/145927
 
 # Examples:
 #
