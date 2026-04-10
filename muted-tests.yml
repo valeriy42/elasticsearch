@@ -291,6 +291,9 @@ tests:
 - class: org.elasticsearch.search.fetch.FetchPhaseDocsIteratorTests
   method: testIterateAsyncVisitsLeavesInDocIdOrder
   issue: https://github.com/elastic/elasticsearch/issues/146078
+- class: org.elasticsearch.xpack.esql.qa.multi_node.EsqlSpecIT
+  method: test {csv-spec:text-embedding.text_embedding with multiple knn queries in fork}
+  issue: https://github.com/elastic/elasticsearch/issues/146091
 
 # Examples:
 #
