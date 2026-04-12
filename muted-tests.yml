@@ -309,6 +309,9 @@ tests:
 - class: org.elasticsearch.datastreams.DataStreamIndexSettingsProviderTests
   method: testGetAdditionalIndexSettingsNoMappings
   issue: https://github.com/elastic/elasticsearch/issues/146108
+- class: org.elasticsearch.datastreams.DataStreamIndexSettingsProviderTests
+  method: testGetAdditionalIndexSettingsIndexRoutingPathAlreadyDefined
+  issue: https://github.com/elastic/elasticsearch/issues/146109
 
 # Examples:
 #
