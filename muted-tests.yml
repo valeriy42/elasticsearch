@@ -330,6 +330,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecIT
   method: test {csv-spec:subquery.subqueryInFromWithNoFieldCountOneInSubquery}
   issue: https://github.com/elastic/elasticsearch/issues/146179
+- class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecIT
+  method: test {csv-spec:subquery.subqueryInFromWithNoFieldCountStarInSubquery}
+  issue: https://github.com/elastic/elasticsearch/issues/146180
 
 # Examples:
 #
