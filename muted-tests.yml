@@ -327,6 +327,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecIT
   method: test {csv-spec:subquery.subqueryInFromWithNoFieldCountEmptyInSubquery}
   issue: https://github.com/elastic/elasticsearch/issues/146178
+- class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecIT
+  method: test {csv-spec:subquery.subqueryInFromWithNoFieldCountOneInSubquery}
+  issue: https://github.com/elastic/elasticsearch/issues/146179
 
 # Examples:
 #
