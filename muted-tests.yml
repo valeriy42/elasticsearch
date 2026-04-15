@@ -340,6 +340,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecForceStoredLoadingIT
   method: test {csv-spec:text-embedding.text_embedding scores by stable sort}
   issue: https://github.com/elastic/elasticsearch/issues/146416
+- class: org.elasticsearch.index.reindex.ReindexClientYamlTestSuiteIT
+  method: test {yaml=reindex/10_basic/Response format for version conflict with conflicts=proceed}
+  issue: https://github.com/elastic/elasticsearch/issues/146419
 
 # Examples:
 #
