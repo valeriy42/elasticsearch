@@ -366,6 +366,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecIT
   method: test {csv-spec:text-embedding.text_embedding with multiple knn queries in fork}
   issue: https://github.com/elastic/elasticsearch/issues/146341
+- class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecIT
+  method: test {csv-spec:text-embedding.text_embedding scores by stable sort}
+  issue: https://github.com/elastic/elasticsearch/issues/146342
 
 # Examples:
 #
