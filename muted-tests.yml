@@ -337,6 +337,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.multi_node.EsqlSpecIT
   method: test {csv-spec:text-embedding.text_embedding scores by stable sort}
   issue: https://github.com/elastic/elasticsearch/issues/146409
+- class: org.elasticsearch.xpack.diskbbq.DiskBbqTrialLicenseIT
+  method: testDefaultIndexOptionsForDenseVector
+  issue: https://github.com/elastic/elasticsearch/issues/146415
 
 # Examples:
 #
