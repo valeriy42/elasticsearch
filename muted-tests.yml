@@ -360,6 +360,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:text-embedding.text_embedding scores by stable sort}
   issue: https://github.com/elastic/elasticsearch/issues/146338
+- class: org.elasticsearch.xpack.esql.CsvIT
+  method: test {csv-spec:text-embedding.text_embedding with multiple knn queries in fork}
+  issue: https://github.com/elastic/elasticsearch/issues/146339
 
 # Examples:
 #
