@@ -348,6 +348,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.RestEsqlIT
   method: testForceSleepsProfile {SYNC}
   issue: https://github.com/elastic/elasticsearch/issues/146377
+- class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecIT
+  method: test {csv-spec:text-embedding.text_embedding scores by stable sort}
+  issue: https://github.com/elastic/elasticsearch/issues/146409
 
 # Examples:
 #
