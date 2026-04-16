@@ -436,6 +436,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testMergeShardsIterators
   issue: https://github.com/elastic/elasticsearch/issues/146557
+- class: org.elasticsearch.action.search.TransportSearchActionTests
+  method: testLocalShardIteratorFromPointInTimeAllowsPartialResultsWhenNodeMissing
+  issue: https://github.com/elastic/elasticsearch/issues/146558
 
 # Examples:
 #
