@@ -415,6 +415,9 @@ tests:
 - class: org.elasticsearch.action.support.RefCountingListenerTests
   method: testNullCheck
   issue: https://github.com/elastic/elasticsearch/issues/146548
+- class: org.elasticsearch.action.support.RefCountingListenerTests
+  method: testBasicOperation
+  issue: https://github.com/elastic/elasticsearch/issues/146549
 
 # Examples:
 #
