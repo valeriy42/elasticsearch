@@ -418,6 +418,9 @@ tests:
 - class: org.elasticsearch.action.support.RefCountingListenerTests
   method: testBasicOperation
   issue: https://github.com/elastic/elasticsearch/issues/146549
+- class: org.elasticsearch.action.search.SearchRequestAttributesExtractorTests
+  method: testExtractAttributesTimestampSortedTimeRangeFilterConstantScore
+  issue: https://github.com/elastic/elasticsearch/issues/146550
 
 # Examples:
 #
