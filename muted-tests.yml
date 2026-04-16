@@ -364,6 +364,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testCCSRemoteReduceWithDisconnectedRemoteClusters
   issue: https://github.com/elastic/elasticsearch/issues/146513
+- class: org.elasticsearch.action.search.TransportSearchActionTests
+  method: testCCSCompatibilityCheck
+  issue: https://github.com/elastic/elasticsearch/issues/146514
 
 # Examples:
 #
