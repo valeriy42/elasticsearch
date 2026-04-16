@@ -346,6 +346,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.optimizer.rules.physical.local.SubstituteRoundToGoldenTests
   method: testDateTruncNotTransformToQueryAndTags
   issue: https://github.com/elastic/elasticsearch/issues/146458
+- class: org.elasticsearch.xpack.esql.optimizer.rules.physical.local.SubstituteRoundToTests
+  method: testBlockLoaderFallbackForDate {default}
+  issue: https://github.com/elastic/elasticsearch/issues/146459
 
 # Examples:
 #
