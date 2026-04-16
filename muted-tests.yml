@@ -352,6 +352,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.optimizer.rules.physical.local.SubstituteRoundToTests
   method: testBlockLoaderFallbackForLong {default}
   issue: https://github.com/elastic/elasticsearch/issues/146460
+- class: org.elasticsearch.xpack.esql.optimizer.rules.physical.local.SubstituteRoundToTests
+  method: testBlockLoaderFallbackForDateNanos {default}
+  issue: https://github.com/elastic/elasticsearch/issues/146461
 
 # Examples:
 #
