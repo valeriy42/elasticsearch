@@ -361,6 +361,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testCCSRemoteReduceMergeFails
   issue: https://github.com/elastic/elasticsearch/issues/146510
+- class: org.elasticsearch.action.search.TransportSearchActionTests
+  method: testCCSRemoteReduceWithDisconnectedRemoteClusters
+  issue: https://github.com/elastic/elasticsearch/issues/146513
 
 # Examples:
 #
