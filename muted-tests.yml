@@ -397,6 +397,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testCollectSearchShards
   issue: https://github.com/elastic/elasticsearch/issues/146541
+- class: org.elasticsearch.action.search.TransportSearchActionTests
+  method: testShouldPreFilterSearchShardsWithReadOnly
+  issue: https://github.com/elastic/elasticsearch/issues/146543
 
 # Examples:
 #
