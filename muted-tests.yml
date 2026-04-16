@@ -385,6 +385,9 @@ tests:
 - class: org.elasticsearch.action.search.SearchRequestAttributesExtractorTests
   method: testExtractAttributesPit
   issue: https://github.com/elastic/elasticsearch/issues/146535
+- class: org.elasticsearch.action.search.SearchRequestAttributesExtractorTests
+  method: testExtractAttributesKnnQuery
+  issue: https://github.com/elastic/elasticsearch/issues/146536
 
 # Examples:
 #
