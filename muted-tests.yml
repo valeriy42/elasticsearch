@@ -343,6 +343,9 @@ tests:
 - class: org.elasticsearch.repositories.blobstore.testkit.analyze.AzureRepositoryAnalysisRestIT
   method: testRepositoryAnalysis
   issue: https://github.com/elastic/elasticsearch/issues/146430
+- class: org.elasticsearch.xpack.esql.optimizer.rules.physical.local.SubstituteRoundToGoldenTests
+  method: testDateTruncNotTransformToQueryAndTags
+  issue: https://github.com/elastic/elasticsearch/issues/146458
 
 # Examples:
 #
