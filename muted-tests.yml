@@ -370,6 +370,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testCCSRemoteReduce
   issue: https://github.com/elastic/elasticsearch/issues/146516
+- class: org.elasticsearch.action.search.TransportSearchActionTests
+  method: testCCSRemoteReduceWhereRemoteClustersFail
+  issue: https://github.com/elastic/elasticsearch/issues/146517
 
 # Examples:
 #
