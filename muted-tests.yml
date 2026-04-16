@@ -445,6 +445,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testCreateSearchResponseMerger
   issue: https://github.com/elastic/elasticsearch/issues/146561
+- class: org.elasticsearch.action.support.nodes.BaseNodesXContentResponseTests
+  method: testFragmentFlag
+  issue: https://github.com/elastic/elasticsearch/issues/146562
 
 # Examples:
 #
