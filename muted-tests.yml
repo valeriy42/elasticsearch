@@ -430,6 +430,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testAdjustSearchType
   issue: https://github.com/elastic/elasticsearch/issues/146554
+- class: org.elasticsearch.action.search.SearchRequestAttributesExtractorTests
+  method: testIntrospectTimeRange
+  issue: https://github.com/elastic/elasticsearch/issues/146556
 
 # Examples:
 #
