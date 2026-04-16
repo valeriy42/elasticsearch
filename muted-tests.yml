@@ -442,6 +442,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testLocalShardIteratorFromPointInTime
   issue: https://github.com/elastic/elasticsearch/issues/146560
+- class: org.elasticsearch.action.search.TransportSearchActionTests
+  method: testCreateSearchResponseMerger
+  issue: https://github.com/elastic/elasticsearch/issues/146561
 
 # Examples:
 #
