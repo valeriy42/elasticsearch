@@ -584,6 +584,43 @@ public class ScrollDataExtractorTests extends ESTestCase {
         verify(scrollDataExtractorFactory).addOrphanedScrollIds(anyList());
     }
 
+    public void testDestroyRetriesFactoryOrphanedScrollIds() throws IOException {
+        // Return false during initScroll() so that call is skipped, then true during destroy().
+        when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(false, true);
+
+        TestDataExtractor extractor = new TestDataExtractor(1000L, 2000L);
+
+        SearchResponse response1 = createSearchResponse(Arrays.asList(1100L, 1200L), Arrays.asList("a1", "a2"), Arrays.asList("b1", "b2"));
+        extractor.setNextResponse(response1);
+        SearchResponse response2 = createEmptySearchResponse();
+        extractor.setNextResponse(response2);
+
+        extractor.next();
+        extractor.next(); // exhaust the scroll
+
+        extractor.destroy();
+
+        verify(scrollDataExtractorFactory).retryClearOrphanedScrollIds();
+    }
+
+    public void testDestroySkipsRetryWhenNoFactoryOrphans() throws IOException {
+        when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(false);
+
+        TestDataExtractor extractor = new TestDataExtractor(1000L, 2000L);
+
+        SearchResponse response1 = createSearchResponse(Arrays.asList(1100L, 1200L), Arrays.asList("a1", "a2"), Arrays.asList("b1", "b2"));
+        extractor.setNextResponse(response1);
+        SearchResponse response2 = createEmptySearchResponse();
+        extractor.setNextResponse(response2);
+
+        extractor.next();
+        extractor.next(); // exhaust the scroll
+
+        extractor.destroy();
+
+        verify(scrollDataExtractorFactory, never()).retryClearOrphanedScrollIds();
+    }
+
     public void testInitScrollTriggersRetryWhenOrphansExist() throws IOException {
         when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(true);
 

@@ -114,6 +114,12 @@ class ScrollDataExtractor implements DataExtractor {
             factory.addOrphanedScrollIds(List.copyOf(failedClearScrollIds));
             failedClearScrollIds.clear();
         }
+        // Also retry any scroll IDs previously orphaned by other extractors. This is especially
+        // important when the datafeed is shutting down and no further initScroll() calls will
+        // happen to trigger the retry there. If the network has since recovered, these will clear.
+        if (factory.hasOrphanedScrollIds()) {
+            factory.retryClearOrphanedScrollIds();
+        }
     }
 
     @Override
