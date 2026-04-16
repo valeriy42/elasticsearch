@@ -448,6 +448,9 @@ tests:
 - class: org.elasticsearch.action.support.nodes.BaseNodesXContentResponseTests
   method: testFragmentFlag
   issue: https://github.com/elastic/elasticsearch/issues/146562
+- class: org.elasticsearch.action.support.RefCountingListenerTests
+  method: testJavaDocExample
+  issue: https://github.com/elastic/elasticsearch/issues/146563
 
 # Examples:
 #
