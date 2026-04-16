@@ -379,6 +379,9 @@ tests:
 - class: org.elasticsearch.action.search.TransportSearchActionTests
   method: testBuildConnectionLookup
   issue: https://github.com/elastic/elasticsearch/issues/146520
+- class: org.elasticsearch.action.search.TransportSearchActionTests
+  method: testLocalShardIteratorFromPointInTimeThrows404WhenNodeMissing
+  issue: https://github.com/elastic/elasticsearch/issues/146521
 
 # Examples:
 #
