@@ -457,6 +457,9 @@ tests:
 - class: org.elasticsearch.action.search.SearchRequestAttributesExtractorTests
   method: testExtractAttributesTimestampSortedTimeRangeFilter
   issue: https://github.com/elastic/elasticsearch/issues/146565
+- class: org.elasticsearch.versioning.ConcurrentSeqNoVersioningIT
+  method: testSeqNoCASLinearizability
+  issue: https://github.com/elastic/elasticsearch/issues/146568
 
 # Examples:
 #
