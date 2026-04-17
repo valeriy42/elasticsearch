@@ -358,6 +358,9 @@ tests:
 - class: org.elasticsearch.transport.ClusterConnectionManagerTests
   method: testConcurrentConnectsAndDisconnects
   issue: https://github.com/elastic/elasticsearch/issues/146685
+- class: org.elasticsearch.transport.RemoteClusterClientTests
+  method: testQuicklySkipUnavailableClusters
+  issue: https://github.com/elastic/elasticsearch/issues/146687
 
 # Examples:
 #
