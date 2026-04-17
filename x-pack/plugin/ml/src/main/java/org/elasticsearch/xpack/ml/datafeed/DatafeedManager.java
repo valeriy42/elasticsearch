@@ -39,6 +39,7 @@ import org.elasticsearch.xpack.core.ml.action.PutDatafeedAction;
 import org.elasticsearch.xpack.core.ml.action.UpdateDatafeedAction;
 import org.elasticsearch.xpack.core.ml.datafeed.DatafeedConfig;
 import org.elasticsearch.xpack.core.ml.datafeed.DatafeedState;
+import org.elasticsearch.xpack.core.ml.datafeed.DatafeedUpdate;
 import org.elasticsearch.xpack.core.ml.job.messages.Messages;
 import org.elasticsearch.xpack.core.ml.job.persistence.ElasticsearchMappings;
 import org.elasticsearch.xpack.core.ml.utils.ExceptionsHelper;
@@ -54,6 +55,7 @@ import org.elasticsearch.xpack.core.security.support.Exceptions;
 import org.elasticsearch.xpack.ml.datafeed.persistence.DatafeedConfigProvider;
 import org.elasticsearch.xpack.ml.job.persistence.JobConfigProvider;
 import org.elasticsearch.xpack.ml.job.persistence.JobDataDeleter;
+import org.elasticsearch.xpack.ml.notifications.AnomalyDetectionAuditor;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -90,6 +92,7 @@ public final class DatafeedManager {
     private final Settings settings;
     private final CrossProjectModeDecider crossProjectModeDecider;
     private final UiamCredentialManager uiamCredentialManager;
+    private final AnomalyDetectionAuditor auditor;
 
     public DatafeedManager(
         DatafeedConfigProvider datafeedConfigProvider,
@@ -97,7 +100,8 @@ public final class DatafeedManager {
         NamedXContentRegistry xContentRegistry,
         Settings settings,
         Client client,
-        UiamCredentialManager uiamCredentialManager
+        UiamCredentialManager uiamCredentialManager,
+        AnomalyDetectionAuditor auditor
     ) {
         this.datafeedConfigProvider = datafeedConfigProvider;
         this.jobConfigProvider = jobConfigProvider;
@@ -106,6 +110,7 @@ public final class DatafeedManager {
         this.settings = settings;
         this.crossProjectModeDecider = new CrossProjectModeDecider(settings);
         this.uiamCredentialManager = Objects.requireNonNull(uiamCredentialManager);
+        this.auditor = Objects.requireNonNull(auditor);
     }
 
     public void putDatafeed(
@@ -254,7 +259,18 @@ public final class DatafeedManager {
             // CPS migration check: if the environment supports CPS and the request carries a UIAM credential,
             // we may need to mint an internal API key for a legacy datafeed transitioning to CPS.
             if (crossProjectModeDecider.crossProjectEnabled() && hasUiamCredential) {
-                applyCpsUpdateWithRekey(request, wrappedValidator, listener);
+                // Fetch the persisted config first so we can determine whether this is a first-time migration
+                // (no cloudInternalApiKey stored yet) and, if so, default project_routing to LOCAL_ONLY to
+                // preserve the pre-migration origin-only search scope (requirement: "Migration defaults
+                // project_routing to local to ensure parity with source job").
+                String datafeedId = request.getUpdate().getId();
+                datafeedConfigProvider.getDatafeedConfig(datafeedId, null, listener.delegateFailureAndWrap((l, existingConfigBuilder) -> {
+                    UpdateDatafeedAction.Request effectiveRequest = maybeDefaultProjectRoutingForMigration(
+                        request,
+                        existingConfigBuilder.build()
+                    );
+                    applyCpsUpdateWithRekey(effectiveRequest, wrappedValidator, l);
+                }));
             } else {
                 datafeedConfigProvider.updateDatefeedConfig(
                     request.getUpdate().getId(),
@@ -277,6 +293,44 @@ public final class DatafeedManager {
             ActionListener.wrap(bool -> doUpdate.run(), listener::onFailure),
             MlConfigIndex.CONFIG_INDEX_MAPPINGS_VERSION
         );
+    }
+
+    /**
+     * Returns a (possibly augmented) update request that defaults {@code project_routing} to
+     * {@link DatafeedConfig#LOCAL_ONLY_PROJECT_ROUTING} when all of the following are true:
+     * <ul>
+     *   <li>This is a <em>first-time</em> UIAM migration — the existing config has no {@code cloudInternalApiKey}.</li>
+     *   <li>The existing config has no explicit {@code project_routing} already set.</li>
+     *   <li>The incoming update does not explicitly set {@code project_routing} either.</li>
+     * </ul>
+     * The default preserves parity with the pre-migration (origin-only) search scope. Post-migration
+     * updates and re-keys of already-migrated datafeeds are never affected.
+     */
+    private UpdateDatafeedAction.Request maybeDefaultProjectRoutingForMigration(
+        UpdateDatafeedAction.Request request,
+        DatafeedConfig existingConfig
+    ) {
+        boolean firstTimeMigration = existingConfig.getCloudInternalApiKey() == null;
+        boolean existingHasRouting = existingConfig.getProjectRouting() != null;
+        boolean updateSetsRouting = request.getUpdate().getProjectRouting() != null;
+        if (firstTimeMigration == false || existingHasRouting || updateSetsRouting) {
+            return request;
+        }
+        logger.info(
+            "[{}] CPS migration: defaulting project_routing to [{}] to preserve local search scope",
+            existingConfig.getId(),
+            DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING
+        );
+        auditor.info(
+            existingConfig.getId(),
+            "CPS migration: project_routing defaulted to ["
+                + DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING
+                + "] to preserve local search scope. Use the update API to change the scope."
+        );
+        DatafeedUpdate augmentedUpdate = new DatafeedUpdate.Builder(request.getUpdate()).setProjectRouting(
+            DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING
+        ).build();
+        return new UpdateDatafeedAction.Request(augmentedUpdate);
     }
 
     /**

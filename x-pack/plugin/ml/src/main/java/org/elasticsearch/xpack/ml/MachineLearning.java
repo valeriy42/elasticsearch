@@ -1076,7 +1076,8 @@ public class MachineLearning extends Plugin
             xContentRegistry,
             settings,
             client,
-            uiamCredentialManager
+            uiamCredentialManager,
+            anomalyDetectionAuditor
         );
 
         // special holder for @link(MachineLearningFeatureSetUsage) which needs access to job manager if ML is enabled

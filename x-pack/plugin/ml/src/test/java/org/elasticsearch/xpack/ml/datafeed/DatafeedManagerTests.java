@@ -23,6 +23,7 @@ import org.elasticsearch.xpack.core.ml.datafeed.DatafeedConfig;
 import org.elasticsearch.xpack.core.ml.datafeed.DatafeedUpdate;
 import org.elasticsearch.xpack.ml.datafeed.persistence.DatafeedConfigProvider;
 import org.elasticsearch.xpack.ml.job.persistence.JobConfigProvider;
+import org.elasticsearch.xpack.ml.notifications.AnomalyDetectionAuditor;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -90,7 +91,8 @@ public class DatafeedManagerTests extends ESTestCase {
             NamedXContentRegistry.EMPTY,
             Settings.EMPTY,
             client,
-            uiamCredentialManager
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
         );
 
         // Build a CPS datafeed with a cloudInternalApiKey
@@ -145,7 +147,8 @@ public class DatafeedManagerTests extends ESTestCase {
             NamedXContentRegistry.EMPTY,
             Settings.EMPTY,
             client,
-            uiamCredentialManager
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
         );
 
         // Build a non-CPS datafeed (no cloudInternalApiKey)
@@ -181,7 +184,8 @@ public class DatafeedManagerTests extends ESTestCase {
             NamedXContentRegistry.EMPTY,
             Settings.EMPTY,
             client,
-            uiamCredentialManager
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
         );
 
         // Build a CPS datafeed
@@ -252,7 +256,8 @@ public class DatafeedManagerTests extends ESTestCase {
             NamedXContentRegistry.EMPTY,
             settings,
             client,
-            uiamCredentialManager
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
         );
 
         // CPS credential manager reports UIAM credential present
@@ -331,13 +336,24 @@ public class DatafeedManagerTests extends ESTestCase {
             NamedXContentRegistry.EMPTY,
             settings,
             client,
-            uiamCredentialManager
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
         );
 
         when(uiamCredentialManager.hasUiamCredential()).thenReturn(true);
 
         String apiKeyId = "update-key-id";
         String encodedKey = Base64.getEncoder().encodeToString(("update-key-id:secret").getBytes(StandardCharsets.UTF_8));
+
+        // Mock getDatafeedConfig to return a legacy datafeed (no cloudInternalApiKey, no projectRouting)
+        DatafeedConfig.Builder existingBuilder = new DatafeedConfig.Builder("test-datafeed", "test-job");
+        existingBuilder.setIndices(List.of("logs-*"));
+        DatafeedConfig existingConfig = existingBuilder.build();
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig.Builder> listener = (ActionListener<DatafeedConfig.Builder>) invocation.getArguments()[2];
+            listener.onResponse(new DatafeedConfig.Builder(existingConfig));
+            return null;
+        }).when(datafeedConfigProvider).getDatafeedConfig(eq("test-datafeed"), isNull(), any());
 
         // Mock grantInternalApiKey to succeed
         doAnswer(invocation -> {
@@ -409,13 +425,24 @@ public class DatafeedManagerTests extends ESTestCase {
             NamedXContentRegistry.EMPTY,
             settings,
             client,
-            uiamCredentialManager
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
         );
 
         when(uiamCredentialManager.hasUiamCredential()).thenReturn(true);
 
         String apiKeyId = "patch-key-id";
         String encodedKey = Base64.getEncoder().encodeToString(("patch-key-id:secret").getBytes(StandardCharsets.UTF_8));
+
+        // Mock getDatafeedConfig to return a legacy datafeed (no cloudInternalApiKey, no projectRouting)
+        DatafeedConfig.Builder existingConfigBuilder2 = new DatafeedConfig.Builder("test-datafeed", "test-job");
+        existingConfigBuilder2.setIndices(List.of("logs-*"));
+        DatafeedConfig existingConfig2 = existingConfigBuilder2.build();
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig.Builder> listener = (ActionListener<DatafeedConfig.Builder>) invocation.getArguments()[2];
+            listener.onResponse(new DatafeedConfig.Builder(existingConfig2));
+            return null;
+        }).when(datafeedConfigProvider).getDatafeedConfig(eq("test-datafeed"), isNull(), any());
 
         // Mock grantInternalApiKey to succeed
         doAnswer(invocation -> {
@@ -472,6 +499,343 @@ public class DatafeedManagerTests extends ESTestCase {
         assertTrue("revokeApiKey should have been called to clean up the leaked key", revokeCalled.get());
         assertThat(failure.get(), notNullValue());
         assertThat(failure.get().getMessage(), containsString("simulated patch failure"));
+    }
+
+    /**
+     * First-time UIAM migration: legacy datafeed with no cloudInternalApiKey and no projectRouting.
+     * Expects project_routing to be defaulted to LOCAL_ONLY_PROJECT_ROUTING in the stored config.
+     */
+    @SuppressWarnings("unchecked")
+    public void testUpdateDatafeed_DefaultsProjectRoutingOnFirstTimeMigration() {
+        Settings settings = Settings.builder().put("serverless.cross_project.enabled", true).put("xpack.security.enabled", false).build();
+
+        DatafeedConfigProvider datafeedConfigProvider = mock(DatafeedConfigProvider.class);
+        UiamCredentialManager uiamCredentialManager = mock(UiamCredentialManager.class);
+        JobConfigProvider jobConfigProvider = mock(JobConfigProvider.class);
+        Client client = mock(Client.class);
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.getThreadContext()).thenReturn(new ThreadContext(Settings.EMPTY));
+
+        DatafeedManager manager = new DatafeedManager(
+            datafeedConfigProvider,
+            jobConfigProvider,
+            NamedXContentRegistry.EMPTY,
+            settings,
+            client,
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
+        );
+
+        when(uiamCredentialManager.hasUiamCredential()).thenReturn(true);
+
+        // Legacy datafeed: no cloudInternalApiKey, no projectRouting
+        DatafeedConfig.Builder existingBuilder = new DatafeedConfig.Builder("df-1", "job-1");
+        existingBuilder.setIndices(List.of("logs-*"));
+        DatafeedConfig existingConfig = existingBuilder.build();
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig.Builder> l = (ActionListener<DatafeedConfig.Builder>) invocation.getArguments()[2];
+            l.onResponse(new DatafeedConfig.Builder(existingConfig));
+            return null;
+        }).when(datafeedConfigProvider).getDatafeedConfig(eq("df-1"), isNull(), any());
+
+        String apiKeyId = "mig-key-id";
+        String encodedKey = Base64.getEncoder().encodeToString((apiKeyId + ":secret").getBytes(StandardCharsets.UTF_8));
+        doAnswer(invocation -> {
+            ActionListener<UiamCredentialManager.InternalApiKeyResult> l = (ActionListener<
+                UiamCredentialManager.InternalApiKeyResult>) invocation.getArguments()[1];
+            l.onResponse(new UiamCredentialManager.InternalApiKeyResult(apiKeyId, encodedKey, Map.of()));
+            return null;
+        }).when(uiamCredentialManager).grantInternalApiKey(eq("df-1"), any());
+
+        // Capture the DatafeedUpdate passed to updateDatefeedConfig
+        AtomicReference<DatafeedUpdate> capturedUpdate = new AtomicReference<>();
+        DatafeedConfig.Builder updatedBuilder = new DatafeedConfig.Builder("df-1", "job-1");
+        updatedBuilder.setIndices(List.of("logs-*"));
+        DatafeedConfig updatedConfig = updatedBuilder.build();
+        doAnswer(invocation -> {
+            capturedUpdate.set((DatafeedUpdate) invocation.getArguments()[1]);
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[4];
+            l.onResponse(updatedConfig);
+            return null;
+        }).when(datafeedConfigProvider).updateDatefeedConfig(eq("df-1"), any(DatafeedUpdate.class), any(Map.class), any(), any());
+
+        // patchCloudInternalApiKey succeeds
+        DatafeedConfig patchedConfig = updatedBuilder.build();
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[3];
+            l.onResponse(patchedConfig);
+            return null;
+        }).when(datafeedConfigProvider).patchCloudInternalApiKey(eq("df-1"), eq(encodedKey), any(Map.class), any());
+
+        // Validate the job mock
+        doAnswer(invocation -> {
+            ActionListener<Boolean> l = (ActionListener<Boolean>) invocation.getArguments()[1];
+            l.onResponse(true);
+            return null;
+        }).when(jobConfigProvider).validateDatafeedJob(any(), any());
+
+        UpdateDatafeedAction.Request request = new UpdateDatafeedAction.Request(new DatafeedUpdate.Builder("df-1").build());
+        AtomicReference<PutDatafeedAction.Response> result = new AtomicReference<>();
+        manager.updateDatafeed(
+            request,
+            mockClusterStateForUpdate(),
+            null,
+            threadPool,
+            ActionListener.wrap(result::set, e -> fail("Expected success but got: " + e.getMessage()))
+        );
+
+        assertThat(capturedUpdate.get(), notNullValue());
+        assertThat(
+            "project_routing must be defaulted to LOCAL_ONLY on first-time migration",
+            capturedUpdate.get().getProjectRouting(),
+            is(DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING)
+        );
+    }
+
+    /**
+     * Legacy datafeed already has an explicit project_routing set — must NOT be overridden by the migration default.
+     */
+    @SuppressWarnings("unchecked")
+    public void testUpdateDatafeed_DoesNotOverrideExistingProjectRouting() {
+        Settings settings = Settings.builder().put("serverless.cross_project.enabled", true).put("xpack.security.enabled", false).build();
+
+        DatafeedConfigProvider datafeedConfigProvider = mock(DatafeedConfigProvider.class);
+        UiamCredentialManager uiamCredentialManager = mock(UiamCredentialManager.class);
+        JobConfigProvider jobConfigProvider = mock(JobConfigProvider.class);
+        Client client = mock(Client.class);
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.getThreadContext()).thenReturn(new ThreadContext(Settings.EMPTY));
+
+        DatafeedManager manager = new DatafeedManager(
+            datafeedConfigProvider,
+            jobConfigProvider,
+            NamedXContentRegistry.EMPTY,
+            settings,
+            client,
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
+        );
+        when(uiamCredentialManager.hasUiamCredential()).thenReturn(true);
+
+        // Existing config already has a non-default projectRouting
+        DatafeedConfig.Builder existingBuilder = new DatafeedConfig.Builder("df-2", "job-2");
+        existingBuilder.setIndices(List.of("logs-*"));
+        existingBuilder.setProjectRouting("_alias:linked_project");
+        DatafeedConfig existingConfig = existingBuilder.build();
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig.Builder> l = (ActionListener<DatafeedConfig.Builder>) invocation.getArguments()[2];
+            l.onResponse(new DatafeedConfig.Builder(existingConfig));
+            return null;
+        }).when(datafeedConfigProvider).getDatafeedConfig(eq("df-2"), isNull(), any());
+
+        String apiKeyId = "rekey-id";
+        String encodedKey = Base64.getEncoder().encodeToString((apiKeyId + ":s").getBytes(StandardCharsets.UTF_8));
+        doAnswer(invocation -> {
+            ActionListener<UiamCredentialManager.InternalApiKeyResult> l = (ActionListener<
+                UiamCredentialManager.InternalApiKeyResult>) invocation.getArguments()[1];
+            l.onResponse(new UiamCredentialManager.InternalApiKeyResult(apiKeyId, encodedKey, Map.of()));
+            return null;
+        }).when(uiamCredentialManager).grantInternalApiKey(eq("df-2"), any());
+
+        AtomicReference<DatafeedUpdate> capturedUpdate = new AtomicReference<>();
+        DatafeedConfig updatedConfig = existingBuilder.build();
+        doAnswer(invocation -> {
+            capturedUpdate.set((DatafeedUpdate) invocation.getArguments()[1]);
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[4];
+            l.onResponse(updatedConfig);
+            return null;
+        }).when(datafeedConfigProvider).updateDatefeedConfig(eq("df-2"), any(DatafeedUpdate.class), any(Map.class), any(), any());
+
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[3];
+            l.onResponse(updatedConfig);
+            return null;
+        }).when(datafeedConfigProvider).patchCloudInternalApiKey(eq("df-2"), eq(encodedKey), any(Map.class), any());
+
+        // Validate the job mock
+        doAnswer(invocation -> {
+            ActionListener<Boolean> l = (ActionListener<Boolean>) invocation.getArguments()[1];
+            l.onResponse(true);
+            return null;
+        }).when(jobConfigProvider).validateDatafeedJob(any(), any());
+
+        UpdateDatafeedAction.Request request = new UpdateDatafeedAction.Request(new DatafeedUpdate.Builder("df-2").build());
+        manager.updateDatafeed(request, mockClusterStateForUpdate(), null, threadPool, ActionListener.wrap(r -> {}, e -> {}));
+
+        assertThat(capturedUpdate.get(), notNullValue());
+        assertThat(
+            "project_routing must not be defaulted when an existing routing is already set",
+            capturedUpdate.get().getProjectRouting(),
+            nullValue()
+        );
+    }
+
+    /**
+     * Caller explicitly sets project_routing in the update — the explicit value must win over the migration default.
+     */
+    @SuppressWarnings("unchecked")
+    public void testUpdateDatafeed_HonoursExplicitProjectRoutingInUpdate() {
+        Settings settings = Settings.builder().put("serverless.cross_project.enabled", true).put("xpack.security.enabled", false).build();
+
+        DatafeedConfigProvider datafeedConfigProvider = mock(DatafeedConfigProvider.class);
+        UiamCredentialManager uiamCredentialManager = mock(UiamCredentialManager.class);
+        JobConfigProvider jobConfigProvider = mock(JobConfigProvider.class);
+        Client client = mock(Client.class);
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.getThreadContext()).thenReturn(new ThreadContext(Settings.EMPTY));
+
+        DatafeedManager manager = new DatafeedManager(
+            datafeedConfigProvider,
+            jobConfigProvider,
+            NamedXContentRegistry.EMPTY,
+            settings,
+            client,
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
+        );
+        when(uiamCredentialManager.hasUiamCredential()).thenReturn(true);
+
+        // Legacy datafeed: no cloudInternalApiKey, no projectRouting
+        DatafeedConfig.Builder existingBuilder = new DatafeedConfig.Builder("df-3", "job-3");
+        existingBuilder.setIndices(List.of("logs-*"));
+        DatafeedConfig existingConfig = existingBuilder.build();
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig.Builder> l = (ActionListener<DatafeedConfig.Builder>) invocation.getArguments()[2];
+            l.onResponse(new DatafeedConfig.Builder(existingConfig));
+            return null;
+        }).when(datafeedConfigProvider).getDatafeedConfig(eq("df-3"), isNull(), any());
+
+        String apiKeyId = "explicit-key";
+        String encodedKey = Base64.getEncoder().encodeToString((apiKeyId + ":s").getBytes(StandardCharsets.UTF_8));
+        doAnswer(invocation -> {
+            ActionListener<UiamCredentialManager.InternalApiKeyResult> l = (ActionListener<
+                UiamCredentialManager.InternalApiKeyResult>) invocation.getArguments()[1];
+            l.onResponse(new UiamCredentialManager.InternalApiKeyResult(apiKeyId, encodedKey, Map.of()));
+            return null;
+        }).when(uiamCredentialManager).grantInternalApiKey(eq("df-3"), any());
+
+        AtomicReference<DatafeedUpdate> capturedUpdate = new AtomicReference<>();
+        DatafeedConfig.Builder updatedBuilder = new DatafeedConfig.Builder("df-3", "job-3");
+        updatedBuilder.setIndices(List.of("logs-*"));
+        DatafeedConfig updatedConfig = updatedBuilder.build();
+        doAnswer(invocation -> {
+            capturedUpdate.set((DatafeedUpdate) invocation.getArguments()[1]);
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[4];
+            l.onResponse(updatedConfig);
+            return null;
+        }).when(datafeedConfigProvider).updateDatefeedConfig(eq("df-3"), any(DatafeedUpdate.class), any(Map.class), any(), any());
+
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[3];
+            l.onResponse(updatedConfig);
+            return null;
+        }).when(datafeedConfigProvider).patchCloudInternalApiKey(eq("df-3"), eq(encodedKey), any(Map.class), any());
+
+        doAnswer(invocation -> {
+            ActionListener<Boolean> l = (ActionListener<Boolean>) invocation.getArguments()[1];
+            l.onResponse(true);
+            return null;
+        }).when(jobConfigProvider).validateDatafeedJob(any(), any());
+
+        // Caller explicitly sets project_routing = "_alias:explicit"
+        UpdateDatafeedAction.Request request = new UpdateDatafeedAction.Request(
+            new DatafeedUpdate.Builder("df-3").setProjectRouting("_alias:explicit").build()
+        );
+        manager.updateDatafeed(request, mockClusterStateForUpdate(), null, threadPool, ActionListener.wrap(r -> {}, e -> {}));
+
+        assertThat(capturedUpdate.get(), notNullValue());
+        assertThat(
+            "explicit project_routing in the update must not be replaced by the migration default",
+            capturedUpdate.get().getProjectRouting(),
+            is("_alias:explicit")
+        );
+    }
+
+    /**
+     * Already-migrated datafeed (has cloudInternalApiKey): re-key must NOT apply the migration default.
+     */
+    @SuppressWarnings("unchecked")
+    public void testUpdateDatafeed_DoesNotDefaultRoutingForAlreadyMigratedDatafeed() {
+        Settings settings = Settings.builder().put("serverless.cross_project.enabled", true).put("xpack.security.enabled", false).build();
+
+        DatafeedConfigProvider datafeedConfigProvider = mock(DatafeedConfigProvider.class);
+        UiamCredentialManager uiamCredentialManager = mock(UiamCredentialManager.class);
+        JobConfigProvider jobConfigProvider = mock(JobConfigProvider.class);
+        Client client = mock(Client.class);
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.getThreadContext()).thenReturn(new ThreadContext(Settings.EMPTY));
+
+        DatafeedManager manager = new DatafeedManager(
+            datafeedConfigProvider,
+            jobConfigProvider,
+            NamedXContentRegistry.EMPTY,
+            settings,
+            client,
+            uiamCredentialManager,
+            mock(AnomalyDetectionAuditor.class)
+        );
+        when(uiamCredentialManager.hasUiamCredential()).thenReturn(true);
+
+        // Already-migrated datafeed: has cloudInternalApiKey, no projectRouting
+        String oldEncodedKey = Base64.getEncoder().encodeToString("old-id:old-secret".getBytes(StandardCharsets.UTF_8));
+        DatafeedConfig.Builder existingBuilder = new DatafeedConfig.Builder("df-4", "job-4");
+        existingBuilder.setIndices(List.of("logs-*"));
+        existingBuilder.setCloudInternalApiKey(oldEncodedKey);
+        DatafeedConfig existingConfig = existingBuilder.build();
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig.Builder> l = (ActionListener<DatafeedConfig.Builder>) invocation.getArguments()[2];
+            l.onResponse(new DatafeedConfig.Builder(existingConfig));
+            return null;
+        }).when(datafeedConfigProvider).getDatafeedConfig(eq("df-4"), isNull(), any());
+
+        String newApiKeyId = "new-rekey-id";
+        String newEncodedKey = Base64.getEncoder().encodeToString((newApiKeyId + ":s").getBytes(StandardCharsets.UTF_8));
+        doAnswer(invocation -> {
+            ActionListener<UiamCredentialManager.InternalApiKeyResult> l = (ActionListener<
+                UiamCredentialManager.InternalApiKeyResult>) invocation.getArguments()[1];
+            l.onResponse(new UiamCredentialManager.InternalApiKeyResult(newApiKeyId, newEncodedKey, Map.of()));
+            return null;
+        }).when(uiamCredentialManager).grantInternalApiKey(eq("df-4"), any());
+
+        AtomicReference<DatafeedUpdate> capturedUpdate = new AtomicReference<>();
+        DatafeedConfig.Builder updatedBuilder = new DatafeedConfig.Builder("df-4", "job-4");
+        updatedBuilder.setIndices(List.of("logs-*"));
+        updatedBuilder.setCloudInternalApiKey(oldEncodedKey);
+        DatafeedConfig updatedConfig = updatedBuilder.build();
+        doAnswer(invocation -> {
+            capturedUpdate.set((DatafeedUpdate) invocation.getArguments()[1]);
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[4];
+            l.onResponse(updatedConfig);
+            return null;
+        }).when(datafeedConfigProvider).updateDatefeedConfig(eq("df-4"), any(DatafeedUpdate.class), any(Map.class), any(), any());
+
+        doAnswer(invocation -> {
+            ActionListener<DatafeedConfig> l = (ActionListener<DatafeedConfig>) invocation.getArguments()[3];
+            l.onResponse(updatedConfig);
+            return null;
+        }).when(datafeedConfigProvider).patchCloudInternalApiKey(eq("df-4"), eq(newEncodedKey), any(Map.class), any());
+
+        doAnswer(invocation -> {
+            ActionListener<Boolean> l = (ActionListener<Boolean>) invocation.getArguments()[2];
+            l.onResponse(true);
+            return null;
+        }).when(uiamCredentialManager).revokeApiKey(eq("old-id"), eq("df-4"), any());
+
+        doAnswer(invocation -> {
+            ActionListener<Boolean> l = (ActionListener<Boolean>) invocation.getArguments()[1];
+            l.onResponse(true);
+            return null;
+        }).when(jobConfigProvider).validateDatafeedJob(any(), any());
+
+        UpdateDatafeedAction.Request request = new UpdateDatafeedAction.Request(new DatafeedUpdate.Builder("df-4").build());
+        manager.updateDatafeed(request, mockClusterStateForUpdate(), null, threadPool, ActionListener.wrap(r -> {}, e -> {}));
+
+        assertThat(capturedUpdate.get(), notNullValue());
+        assertThat(
+            "project_routing must NOT be defaulted for already-migrated datafeeds (re-key)",
+            capturedUpdate.get().getProjectRouting(),
+            nullValue()
+        );
     }
 
     /**
