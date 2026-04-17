@@ -361,6 +361,9 @@ tests:
 - class: org.elasticsearch.transport.RemoteClusterClientTests
   method: testQuicklySkipUnavailableClusters
   issue: https://github.com/elastic/elasticsearch/issues/146687
+- class: org.elasticsearch.transport.TransportHandshakerTests
+  method: testHandshakeRequestFutureVersionsCompatibility
+  issue: https://github.com/elastic/elasticsearch/issues/146688
 
 # Examples:
 #
