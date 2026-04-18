@@ -391,6 +391,9 @@ tests:
 - class: org.elasticsearch.transport.RemoteClusterClientTests
   method: testEnsureWeReconnect
   issue: https://github.com/elastic/elasticsearch/issues/146699
+- class: org.elasticsearch.simdvec.ESVectorUtilTests
+  method: testLogSumExpDiff
+  issue: https://github.com/elastic/elasticsearch/issues/146700
 
 # Examples:
 #
