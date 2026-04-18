@@ -397,6 +397,9 @@ tests:
 - class: org.elasticsearch.transport.TransportHandshakerTests
   method: testHandshakeResponseFromOlderNodeWithPatchedProtocol
   issue: https://github.com/elastic/elasticsearch/issues/146702
+- class: org.elasticsearch.transport.TransportHandshakerTests
+  method: testHandshakeResponseFromOlderNode
+  issue: https://github.com/elastic/elasticsearch/issues/146703
 
 # Examples:
 #
