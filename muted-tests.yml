@@ -385,6 +385,9 @@ tests:
 - class: org.elasticsearch.transport.TransportHandshakerTests
   method: testHandshakeError
   issue: https://github.com/elastic/elasticsearch/issues/146697
+- class: org.elasticsearch.transport.ClusterConnectionManagerTests
+  method: testDisconnectLogging
+  issue: https://github.com/elastic/elasticsearch/issues/146698
 
 # Examples:
 #
