@@ -403,6 +403,9 @@ tests:
 - class: org.elasticsearch.transport.ClusterConnectionManagerTests
   method: testConnectAfterClose
   issue: https://github.com/elastic/elasticsearch/issues/146704
+- class: org.elasticsearch.transport.ClusterConnectionManagerTests
+  method: testConnectFailsDuringValidation
+  issue: https://github.com/elastic/elasticsearch/issues/146709
 
 # Examples:
 #
