@@ -367,6 +367,9 @@ tests:
 - class: org.elasticsearch.simdvec.ESVectorUtilTests
   method: testPow2DiffAndScale
   issue: https://github.com/elastic/elasticsearch/issues/146690
+- class: org.elasticsearch.transport.TransportHandshakerTests
+  method: testHandshakeRequestAndResponse
+  issue: https://github.com/elastic/elasticsearch/issues/146692
 
 # Examples:
 #
