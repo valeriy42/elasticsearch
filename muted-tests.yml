@@ -400,6 +400,9 @@ tests:
 - class: org.elasticsearch.transport.TransportHandshakerTests
   method: testHandshakeResponseFromOlderNode
   issue: https://github.com/elastic/elasticsearch/issues/146703
+- class: org.elasticsearch.transport.ClusterConnectionManagerTests
+  method: testConnectAfterClose
+  issue: https://github.com/elastic/elasticsearch/issues/146704
 
 # Examples:
 #
