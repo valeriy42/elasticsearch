@@ -382,6 +382,9 @@ tests:
 - class: org.elasticsearch.index.reindex.ReindexRelocationOnShutdownIT
   method: testReindexTaskRelocatesOnNodeShutdown
   issue: https://github.com/elastic/elasticsearch/issues/146696
+- class: org.elasticsearch.transport.TransportHandshakerTests
+  method: testHandshakeError
+  issue: https://github.com/elastic/elasticsearch/issues/146697
 
 # Examples:
 #
