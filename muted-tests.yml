@@ -409,6 +409,9 @@ tests:
 - class: org.elasticsearch.transport.TransportHandshakerTests
   method: testIncompatibleHandshakeRequest
   issue: https://github.com/elastic/elasticsearch/issues/146711
+- class: org.elasticsearch.transport.TransportHandshakerTests
+  method: testReadV8HandshakeRequest
+  issue: https://github.com/elastic/elasticsearch/issues/146712
 
 # Examples:
 #
