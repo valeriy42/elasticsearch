@@ -388,6 +388,9 @@ tests:
 - class: org.elasticsearch.transport.ClusterConnectionManagerTests
   method: testDisconnectLogging
   issue: https://github.com/elastic/elasticsearch/issues/146698
+- class: org.elasticsearch.transport.RemoteClusterClientTests
+  method: testEnsureWeReconnect
+  issue: https://github.com/elastic/elasticsearch/issues/146699
 
 # Examples:
 #
