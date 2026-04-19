@@ -421,6 +421,9 @@ tests:
 - class: org.elasticsearch.synonyms.SynonymsManagementAPIServiceTests
   method: testTransportVersionGateRejectsLargeSetsOnOldCluster
   issue: https://github.com/elastic/elasticsearch/issues/146730
+- class: org.elasticsearch.transport.ClusterConnectionManagerTests
+  method: testConcurrentConnectsDuringClose
+  issue: https://github.com/elastic/elasticsearch/issues/146735
 
 # Examples:
 #
