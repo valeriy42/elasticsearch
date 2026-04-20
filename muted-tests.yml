@@ -457,6 +457,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
   method: test {csv-spec:inlinestats.commonFilterExtractionWithAliasAndOriginalNeedingNormalization}
   issue: https://github.com/elastic/elasticsearch/issues/146798
+- class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
+  method: test {csv-spec:k8s-timeseries-present-over-time.present_over_time_older_than_10d}
+  issue: https://github.com/elastic/elasticsearch/issues/146799
 
 # Examples:
 #
