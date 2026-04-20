@@ -442,6 +442,9 @@ tests:
 - class: org.elasticsearch.xpack.inference.queries.SemanticQueryBuilderTests
   method: testToQuery {p0=false}
   issue: https://github.com/elastic/elasticsearch/issues/146777
+- class: org.elasticsearch.xpack.inference.queries.SemanticQueryBuilderTests
+  method: testToQuery {p0=true}
+  issue: https://github.com/elastic/elasticsearch/issues/146778
 
 # Examples:
 #
