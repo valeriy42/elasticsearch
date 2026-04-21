@@ -758,9 +758,7 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
 
             boolean foundRouteToShuttingDownNode = applyShuttingDownRoutes(existingAssignment, shuttingDownNodeIds, assignmentBuilder);
 
-            // Always write back for assignments dropped by the rebalancer: the previous guard
-            // (if foundShuttingDownNodeForAssignment) was what caused deployments with no active
-            // routes to a shutting-down node to be silently removed from cluster state.
+                // Always write back for assignments dropped by the rebalancer to prevent silent data loss.
             if (wasDroppedByRebalancer) {
                 builder.addOrOverwriteAssignment(existingDeploymentId, assignmentBuilder);
                 incrementDroppedWithUndrainedRoutesCounter(
@@ -782,11 +780,11 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         String existingDeploymentId,
         boolean foundRouteToShuttingDownNode
     ) {
-        // Defensive: rebalancer dropped an assignment only routed to healthy nodes; preserved as
-        // STOPPING with empty routes. Tracks if this rare case (loss of STOPPING routes to healthy
+        // The rebalancer dropped an assignment only routed to healthy nodes; preserved as
+        // STOPPING with empty routes. Increment the counter if this rare case (loss of STOPPING routes to healthy
         // nodes) occurs.
         if (foundRouteToShuttingDownNode == false && droppedWithUndrainedRoutesCounter != null) {
-            droppedWithUndrainedRoutesCounter.incrementBy(1L, Map.of("deployment_id", existingDeploymentId));
+            droppedWithUndrainedRoutesCounter.incrementBy(1L, Map.of("deployment_id", existingDeploymentId, "had_routes", Boolean.FALSE));
         }
     }
 

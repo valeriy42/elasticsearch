@@ -85,9 +85,6 @@ public class TransportInferTrainedModelDeploymentAction extends TransportTasksAc
         } else if (failedNodeExceptions.isEmpty() == false) {
             throw failedNodeExceptions.get(0);
         } else if (tasks.isEmpty()) {
-            // Avoid logging client-caused 404s (typos, polling during deployment startup, tests, or intentionally
-            // stopped deployments) per the logging guideline in AGENTS.md. Only escalate to WARN for the preconfigured
-            // ELSER deployments whose absence points to an operational problem an admin can act on.
             if (DEPLOYMENT_IDS_WORTH_WARNING_ON_MISSING_TASK.contains(request.getId())) {
                 logger.warn(
                     "No deployment task found for [{}] on any node when handling inference request; "
