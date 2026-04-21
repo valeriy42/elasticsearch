@@ -178,6 +178,11 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
             // will produce a cluster state update but the one that gets applied first wins. The other
             // update will be rejected and we will retry to assign getting a correct update on available memory
             // on each node.
+            List<String> deploymentIdsBeforeRebalance = TrainedModelAssignmentMetadata.fromState(event.state())
+                .allAssignments()
+                .keySet()
+                .stream()
+                .toList();
             rebalanceAssignments(
                 event.state(),
                 Optional.empty(),
@@ -186,7 +191,15 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
                     newMetadata -> logger.debug(
                         () -> format("rebalanced model assignments [%s]", Strings.toString(newMetadata, false, true))
                     ),
-                    e -> logger.warn("failed to rebalance models", e)
+                    e -> logger.warn(
+                        () -> format(
+                            "failed to rebalance models, cluster state assignments may be stale. "
+                                + "error type: [%s], deployments at start of rebalance: %s",
+                            e.getClass().getSimpleName(),
+                            deploymentIdsBeforeRebalance
+                        ),
+                        e
+                    )
                 )
             );
         }
@@ -664,21 +677,46 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         }
 
         for (TrainedModelAssignment existingAssignment : currentMetadata.allAssignments().values()) {
-            boolean foundShuttingDownNodeForAssignment = false;
-
             String existingDeploymentId = existingAssignment.getDeploymentId();
-            TrainedModelAssignment.Builder assignmentBuilder = builder.hasModelDeployment(existingAssignment.getDeploymentId())
-                ? builder.getAssignment(existingDeploymentId)
-                : TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
+
+            boolean wasDroppedByRebalancer = builder.hasModelDeployment(existingDeploymentId) == false;
+            // Fast path for zero-allocation deployments: nothing to drain, nothing to stop.
+            // If the rebalancer already has the deployment, leave its version untouched.
+            // Otherwise carry the existing assignment forward unchanged so it is never silently lost.
+            if (existingAssignment.getNodeRoutingTable().isEmpty()) {
+                if (wasDroppedByRebalancer) {
+                    logger.warn(
+                        "Assignment [{}] was present before rebalance but missing from rebalancer output; "
+                            + "preserving original assignment with empty routing (no active routes to drain).",
+                        existingDeploymentId
+                    );
+                    builder.addOrOverwriteAssignment(
+                        existingDeploymentId,
+                        TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
+                    );
+                }
+                continue;
+            }
+
+            
+            TrainedModelAssignment.Builder assignmentBuilder = wasDroppedByRebalancer
+                ? TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
                     /*
-                     * If this code path happens that means that the assignment originally existed prior to the rebalance and then
-                     * disappeared. This would be an anomaly so we'll set the assignment to stopping and attempt to gracefully shut down
-                     * the native process.
+                     * The assignment existed before the rebalance but was not emitted by the rebalancer.
+                     * Transition it to STOPPING and attempt to gracefully shut down the native process.
                      */
                     .stopAssignment(NODES_CHANGED_REASON)
                     // If there are other routes that are now outdated after the rebalance we don't want to include them, so let's start
                     // with a fresh table
-                    .clearNodeRoutingTable();
+                    .clearNodeRoutingTable()
+                : builder.getAssignment(existingDeploymentId);
+
+            if (wasDroppedByRebalancer) {
+                logger.warn(
+                    "Assignment [{}] was present before rebalance but missing from rebalancer output; transitioning to STOPPING.",
+                    existingDeploymentId
+                );
+            }
 
             for (String nodeId : shuttingDownNodeIds) {
                 if (existingAssignment.isRoutedToNode(nodeId)
@@ -694,18 +732,21 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
                         )
                     );
 
-                    foundShuttingDownNodeForAssignment = true;
                     RoutingInfo stoppingRouteInfo = createShuttingDownRoute(existingAssignment.getNodeRoutingTable().get(nodeId));
-
                     assignmentBuilder.addOrOverwriteRoutingEntry(nodeId, stoppingRouteInfo);
                 }
             }
 
-            // if we didn't find a shutting down routing info then we don't want to add an empty assignment here
-            if (foundShuttingDownNodeForAssignment) {
+            // Always write back for assignments dropped by the rebalancer: the previous guard
+            // (if foundShuttingDownNodeForAssignment) was what caused deployments with no active
+            // routes to a shutting-down node to be silently removed from cluster state.
+            if (wasDroppedByRebalancer) {
                 builder.addOrOverwriteAssignment(existingDeploymentId, assignmentBuilder);
             }
         }
+
+        assert currentMetadata.allAssignments().keySet().stream().allMatch(builder::hasModelDeployment)
+            : "setShuttingDownNodeRoutesToStopping must not drop any assignment present in currentMetadata";
 
         return builder;
     }

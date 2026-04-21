@@ -90,6 +90,7 @@ import static org.elasticsearch.core.Strings.format;
 import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.anEmptyMap;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
@@ -1963,6 +1964,96 @@ public class TrainedModelAssignmentClusterServiceTests extends ESTestCase {
         assertThat(assignment.getNodeRoutingTable().get(shuttingDownNodeId).getState(), is(RoutingState.STOPPING));
         assertThat(assignment.getReason().isPresent(), is(true));
         assertThat(assignment.getReason().get(), is("nodes changed"));
+    }
+
+    public void testSetShuttingDownNodeRoutesToStopping_GivenZeroAllocationAssignmentMissingFromBuilder_ItIsPreserved() {
+        var shuttingDownNodeId = "shutting-down-1";
+        var zeroAllocDeploymentId = "zero-alloc-deployment";
+        // Use 0 allocations so calculateAssignmentState() returns STARTED (matching the production state
+        // of a deployment that adaptive allocations has scaled down to zero)
+        StartTrainedModelDeploymentAction.TaskParams taskParams = newParams(zeroAllocDeploymentId, 100, 0, 1);
+
+        // Existing cluster state: a zero-allocation deployment (no routing entries, STARTED state)
+        TrainedModelAssignmentMetadata currentMetadata = TrainedModelAssignmentMetadata.Builder.empty()
+            .addNewAssignment(
+                zeroAllocDeploymentId,
+                TrainedModelAssignment.Builder.empty(taskParams, null).calculateAndSetAssignmentState()
+            )
+            .build();
+
+        // Rebalancer output: empty (simulates the anomaly — rebalancer dropped the deployment)
+        TrainedModelAssignmentMetadata.Builder rebalanced = TrainedModelAssignmentMetadata.Builder.empty();
+
+        TrainedModelAssignmentMetadata result = TrainedModelAssignmentClusterService.setShuttingDownNodeRoutesToStopping(
+            currentMetadata,
+            Set.of(shuttingDownNodeId),
+            rebalanced
+        ).build();
+
+        TrainedModelAssignment assignment = result.getDeploymentAssignment(zeroAllocDeploymentId);
+        assertThat("zero-allocation deployment must not be silently dropped", assignment, is(notNullValue()));
+        assertThat(assignment.getNodeRoutingTable().entrySet(), is(empty()));
+        // The assignment state should be preserved as STARTED (not STOPPING) for zero-alloc deployments
+        assertThat(assignment.getAssignmentState(), equalTo(AssignmentState.STARTED));
+    }
+
+    public void testSetShuttingDownNodeRoutesToStopping_GivenZeroAllocationAssignmentPresentInBuilder_ItIsNotOverwritten() {
+        var shuttingDownNodeId = "shutting-down-1";
+        var zeroAllocDeploymentId = "zero-alloc-deployment";
+        StartTrainedModelDeploymentAction.TaskParams taskParams = newParams(zeroAllocDeploymentId, 100, 0, 1);
+
+        TrainedModelAssignment.Builder zeroAllocBuilder = TrainedModelAssignment.Builder.empty(taskParams, null)
+            .calculateAndSetAssignmentState();
+        TrainedModelAssignmentMetadata currentMetadata = TrainedModelAssignmentMetadata.Builder.empty()
+            .addNewAssignment(zeroAllocDeploymentId, zeroAllocBuilder)
+            .build();
+
+        // Rebalancer output already contains the zero-allocation deployment
+        TrainedModelAssignmentMetadata.Builder rebalanced = TrainedModelAssignmentMetadata.Builder.empty()
+            .addNewAssignment(
+                zeroAllocDeploymentId,
+                TrainedModelAssignment.Builder.empty(taskParams, null).calculateAndSetAssignmentState()
+            );
+
+        TrainedModelAssignmentMetadata result = TrainedModelAssignmentClusterService.setShuttingDownNodeRoutesToStopping(
+            currentMetadata,
+            Set.of(shuttingDownNodeId),
+            rebalanced
+        ).build();
+
+        TrainedModelAssignment assignment = result.getDeploymentAssignment(zeroAllocDeploymentId);
+        assertThat(assignment, is(notNullValue()));
+        assertThat(assignment.getNodeRoutingTable().entrySet(), is(empty()));
+        assertThat(assignment.getAssignmentState(), equalTo(AssignmentState.STARTED));
+    }
+
+    public void testSetShuttingDownNodeRoutesToStopping_GivenAnomalyAssignmentWithNoShuttingDownRoutes_ItIsStillPreserved() {
+        var shuttingDownNodeId = "shutting-down-1";
+        var healthyNodeId = "node-1";
+        var deploymentId = "deployment-routed-to-healthy-node";
+        StartTrainedModelDeploymentAction.TaskParams taskParams = newParams(deploymentId, 100);
+
+        // Assignment has a route to a healthy node only (not the shutting-down node)
+        TrainedModelAssignmentMetadata currentMetadata = TrainedModelAssignmentMetadata.Builder.empty()
+            .addNewAssignment(
+                deploymentId,
+                TrainedModelAssignment.Builder.empty(taskParams, null)
+                    .addRoutingEntry(healthyNodeId, new RoutingInfo(1, 1, RoutingState.STARTED, ""))
+            )
+            .build();
+
+        // Rebalancer output: empty (anomaly — rebalancer dropped the deployment)
+        TrainedModelAssignmentMetadata.Builder rebalanced = TrainedModelAssignmentMetadata.Builder.empty();
+
+        TrainedModelAssignmentMetadata result = TrainedModelAssignmentClusterService.setShuttingDownNodeRoutesToStopping(
+            currentMetadata,
+            Set.of(shuttingDownNodeId),
+            rebalanced
+        ).build();
+
+        TrainedModelAssignment assignment = result.getDeploymentAssignment(deploymentId);
+        assertThat("deployment routed only to healthy nodes must not be dropped by the anomaly branch", assignment, is(notNullValue()));
+        assertThat(assignment.getAssignmentState(), equalTo(AssignmentState.STOPPING));
     }
 
     private static ClusterState createClusterState(List<String> nodeIds, Metadata metadata) {
