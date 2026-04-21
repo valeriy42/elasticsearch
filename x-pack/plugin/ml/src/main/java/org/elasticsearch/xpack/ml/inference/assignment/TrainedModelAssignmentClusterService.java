@@ -34,6 +34,8 @@ import org.elasticsearch.core.SuppressForbidden;
 import org.elasticsearch.gateway.GatewayService;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.telemetry.metric.LongCounter;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.core.ml.MachineLearningField;
 import org.elasticsearch.xpack.core.ml.MlMetadata;
@@ -79,12 +81,28 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
 
     private static final Logger logger = LogManager.getLogger(TrainedModelAssignmentClusterService.class);
 
+    /**
+     * Counter for the rare, anomalous case where a trained-model assignment was present in cluster state before a
+     * rebalance, was omitted from the rebalancer output, AND had a non-empty routing table with no routes to any
+     * shutting-down node (i.e. all routes pointed to healthy nodes).
+     * <p>
+     * In this case {@link #setShuttingDownNodeRoutesToStopping} preserves the assignment as {@code STOPPING} with an
+     * empty routing table to avoid silently losing it from cluster state. However, the healthy-node routes are
+     * discarded rather than transitioned to {@code STOPPING}, so the native processes on those nodes do not receive
+     * a drain signal and may become orphaned until the next reconciliation. This counter lets us observe whether
+     * this situation is occurring in production so we can decide whether a more invasive fix (transitioning the
+     * healthy routes themselves to {@code STOPPING}) is warranted.
+     */
+    public static final String ASSIGNMENT_DROPPED_WITH_UNDRAINED_ROUTES_COUNTER =
+        "es.ml.trained_model_assignment.dropped_with_undrained_routes.count";
+
     private final ClusterService clusterService;
     private final ThreadPool threadPool;
     private final NodeLoadDetector nodeLoadDetector;
     private final SystemAuditor systemAuditor;
     private final NodeAvailabilityZoneMapper nodeAvailabilityZoneMapper;
     private final Client client;
+    private final LongCounter droppedWithUndrainedRoutesCounter;
     private volatile int maxMemoryPercentage;
     private volatile boolean useAuto;
     private volatile int maxOpenJobs;
@@ -99,7 +117,8 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         NodeLoadDetector nodeLoadDetector,
         SystemAuditor systemAuditor,
         NodeAvailabilityZoneMapper nodeAvailabilityZoneMapper,
-        Client client
+        Client client,
+        MeterRegistry meterRegistry
     ) {
         this.clusterService = Objects.requireNonNull(clusterService);
         this.threadPool = Objects.requireNonNull(threadPool);
@@ -113,6 +132,14 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         this.maxMLNodeSize = MachineLearning.MAX_ML_NODE_SIZE.get(settings).getBytes();
         this.allocatedProcessorsScale = MachineLearning.ALLOCATED_PROCESSORS_SCALE.get(settings);
         this.client = client;
+        meterRegistry.registerLongCounter(
+            ASSIGNMENT_DROPPED_WITH_UNDRAINED_ROUTES_COUNTER,
+            "Number of times a trained-model assignment was dropped by the rebalancer while holding routes only to "
+                + "healthy nodes. Preserved as STOPPING with an empty routing table to prevent silent loss, but "
+                + "healthy-node routes are discarded rather than gracefully drained.",
+            "count"
+        );
+        this.droppedWithUndrainedRoutesCounter = meterRegistry.getLongCounter(ASSIGNMENT_DROPPED_WITH_UNDRAINED_ROUTES_COUNTER);
         // Only nodes that can possibly be master nodes really need this service running
         if (DiscoveryNode.isMasterNode(settings)) {
             clusterService.addListener(this);
@@ -178,11 +205,6 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
             // will produce a cluster state update but the one that gets applied first wins. The other
             // update will be rejected and we will retry to assign getting a correct update on available memory
             // on each node.
-            List<String> deploymentIdsBeforeRebalance = TrainedModelAssignmentMetadata.fromState(event.state())
-                .allAssignments()
-                .keySet()
-                .stream()
-                .toList();
             rebalanceAssignments(
                 event.state(),
                 Optional.empty(),
@@ -191,15 +213,22 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
                     newMetadata -> logger.debug(
                         () -> format("rebalanced model assignments [%s]", Strings.toString(newMetadata, false, true))
                     ),
-                    e -> logger.warn(
-                        () -> format(
-                            "failed to rebalance models, cluster state assignments may be stale. "
-                                + "error type: [%s], deployments at start of rebalance: %s",
-                            e.getClass().getSimpleName(),
-                            deploymentIdsBeforeRebalance
-                        ),
-                        e
-                    )
+                    e -> {
+                        List<String> deploymentIdsBeforeRebalance = TrainedModelAssignmentMetadata.fromState(event.state())
+                            .allAssignments()
+                            .keySet()
+                            .stream()
+                            .toList();
+                        logger.warn(
+                            () -> format(
+                                "failed to rebalance models, cluster state assignments may be stale. "
+                                    + "error type: [%s], deployments at start of rebalance: %s",
+                                e.getClass().getSimpleName(),
+                                deploymentIdsBeforeRebalance
+                            ),
+                            e
+                        );
+                    }
                 )
             );
         }
@@ -652,7 +681,8 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         TrainedModelAssignmentMetadata.Builder rebalanced = setShuttingDownNodeRoutesToStopping(
             currentMetadata,
             shuttingDownNodeIds,
-            rebalancer.rebalance()
+            rebalancer.rebalance(),
+            droppedWithUndrainedRoutesCounter
         );
 
         if (createAssignmentRequest.isPresent()) {
@@ -666,11 +696,20 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         return rebalanced;
     }
 
-    // Default for testing
+    // Default for testing (no metric recording)
     static TrainedModelAssignmentMetadata.Builder setShuttingDownNodeRoutesToStopping(
         TrainedModelAssignmentMetadata currentMetadata,
         Set<String> shuttingDownNodeIds,
         TrainedModelAssignmentMetadata.Builder builder
+    ) {
+        return setShuttingDownNodeRoutesToStopping(currentMetadata, shuttingDownNodeIds, builder, null);
+    }
+
+    static TrainedModelAssignmentMetadata.Builder setShuttingDownNodeRoutesToStopping(
+        TrainedModelAssignmentMetadata currentMetadata,
+        Set<String> shuttingDownNodeIds,
+        TrainedModelAssignmentMetadata.Builder builder,
+        @Nullable LongCounter droppedWithUndrainedRoutesCounter
     ) {
         if (shuttingDownNodeIds.isEmpty()) {
             return builder;
@@ -698,8 +737,13 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
                 continue;
             }
 
-            TrainedModelAssignment.Builder assignmentBuilder = wasDroppedByRebalancer
-                ? TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
+            TrainedModelAssignment.Builder assignmentBuilder;
+            if (wasDroppedByRebalancer) {
+                logger.warn(
+                    "Assignment [{}] was present before rebalance but missing from rebalancer output; transitioning to STOPPING.",
+                    existingDeploymentId
+                );
+                assignmentBuilder = TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
                     /*
                      * The assignment existed before the rebalance but was not emitted by the rebalancer.
                      * Transition it to STOPPING and attempt to gracefully shut down the native process.
@@ -707,40 +751,23 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
                     .stopAssignment(NODES_CHANGED_REASON)
                     // If there are other routes that are now outdated after the rebalance we don't want to include them, so let's start
                     // with a fresh table
-                    .clearNodeRoutingTable()
-                : builder.getAssignment(existingDeploymentId);
-
-            if (wasDroppedByRebalancer) {
-                logger.warn(
-                    "Assignment [{}] was present before rebalance but missing from rebalancer output; transitioning to STOPPING.",
-                    existingDeploymentId
-                );
+                    .clearNodeRoutingTable();
+            } else {
+                assignmentBuilder = builder.getAssignment(existingDeploymentId);
             }
 
-            for (String nodeId : shuttingDownNodeIds) {
-                if (existingAssignment.isRoutedToNode(nodeId)
-                    && existingAssignment.getNodeRoutingTable()
-                        .get(nodeId)
-                        .getState()
-                        .isAnyOf(RoutingState.STARTED, RoutingState.STARTING)) {
-                    logger.debug(
-                        () -> format(
-                            "Found assignment deployment id: [%s] with route to shutting down node id: [%s], adding stopping route",
-                            existingDeploymentId,
-                            nodeId
-                        )
-                    );
-
-                    RoutingInfo stoppingRouteInfo = createShuttingDownRoute(existingAssignment.getNodeRoutingTable().get(nodeId));
-                    assignmentBuilder.addOrOverwriteRoutingEntry(nodeId, stoppingRouteInfo);
-                }
-            }
+            boolean foundRouteToShuttingDownNode = applyShuttingDownRoutes(existingAssignment, shuttingDownNodeIds, assignmentBuilder);
 
             // Always write back for assignments dropped by the rebalancer: the previous guard
             // (if foundShuttingDownNodeForAssignment) was what caused deployments with no active
             // routes to a shutting-down node to be silently removed from cluster state.
             if (wasDroppedByRebalancer) {
                 builder.addOrOverwriteAssignment(existingDeploymentId, assignmentBuilder);
+                incrementDroppedWithUndrainedRoutesCounter(
+                    droppedWithUndrainedRoutesCounter,
+                    existingDeploymentId,
+                    foundRouteToShuttingDownNode
+                );
             }
         }
 
@@ -748,6 +775,52 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
             : "setShuttingDownNodeRoutesToStopping must not drop any assignment present in currentMetadata";
 
         return builder;
+    }
+
+    private static void incrementDroppedWithUndrainedRoutesCounter(
+        LongCounter droppedWithUndrainedRoutesCounter,
+        String existingDeploymentId,
+        boolean foundRouteToShuttingDownNode
+    ) {
+        // Defensive: rebalancer dropped an assignment only routed to healthy nodes; preserved as
+        // STOPPING with empty routes. Tracks if this rare case (loss of STOPPING routes to healthy
+        // nodes) occurs.
+        if (foundRouteToShuttingDownNode == false && droppedWithUndrainedRoutesCounter != null) {
+            droppedWithUndrainedRoutesCounter.incrementBy(1L, Map.of("deployment_id", existingDeploymentId));
+        }
+    }
+
+    /**
+     * For each node in {@code shuttingDownNodeIds} that has an active ({@link RoutingState#STARTING} or
+     * {@link RoutingState#STARTED}) route in {@code existingAssignment}, converts that route to a
+     * {@link RoutingState#STOPPING} route and writes it into {@code assignmentBuilder}.
+     *
+     * @return {@code true} if at least one route to a shutting-down node was found and transitioned
+     */
+    private static boolean applyShuttingDownRoutes(
+        TrainedModelAssignment existingAssignment,
+        Set<String> shuttingDownNodeIds,
+        TrainedModelAssignment.Builder assignmentBuilder
+    ) {
+        boolean foundRoute = false;
+        for (String nodeId : shuttingDownNodeIds) {
+            if (existingAssignment.isRoutedToNode(nodeId)
+                && existingAssignment.getNodeRoutingTable().get(nodeId).getState().isAnyOf(RoutingState.STARTED, RoutingState.STARTING)) {
+                logger.debug(
+                    () -> format(
+                        "Found assignment deployment id: [%s] with route to shutting down node id: [%s], adding stopping route",
+                        existingAssignment.getDeploymentId(),
+                        nodeId
+                    )
+                );
+                assignmentBuilder.addOrOverwriteRoutingEntry(
+                    nodeId,
+                    createShuttingDownRoute(existingAssignment.getNodeRoutingTable().get(nodeId))
+                );
+                foundRoute = true;
+            }
+        }
+        return foundRoute;
     }
 
     private void checkModelIsFullyAllocatedIfScalingIsNotPossible(

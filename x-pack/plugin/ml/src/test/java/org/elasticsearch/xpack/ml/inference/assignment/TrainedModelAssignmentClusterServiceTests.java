@@ -42,6 +42,11 @@ import org.elasticsearch.core.CheckedConsumer;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.telemetry.InstrumentType;
+import org.elasticsearch.telemetry.Measurement;
+import org.elasticsearch.telemetry.RecordingMeterRegistry;
+import org.elasticsearch.telemetry.metric.LongCounter;
+import org.elasticsearch.telemetry.metric.MeterRegistry;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.core.ml.MachineLearningField;
@@ -92,6 +97,7 @@ import static org.hamcrest.Matchers.anEmptyMap;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
@@ -2000,19 +2006,25 @@ public class TrainedModelAssignmentClusterServiceTests extends ESTestCase {
     public void testSetShuttingDownNodeRoutesToStopping_GivenZeroAllocationAssignmentPresentInBuilder_ItIsNotOverwritten() {
         var shuttingDownNodeId = "shutting-down-1";
         var zeroAllocDeploymentId = "zero-alloc-deployment";
+        var currentSentinelReason = "reason-from-current-metadata";
+        var rebalancedSentinelReason = "reason-from-rebalancer";
         StartTrainedModelDeploymentAction.TaskParams taskParams = newParams(zeroAllocDeploymentId, 100, 0, 1);
 
-        TrainedModelAssignment.Builder zeroAllocBuilder = TrainedModelAssignment.Builder.empty(taskParams, null)
+        // Sentinel on the current-metadata version so we can detect if the fast path
+        // accidentally overwrites the rebalancer's version with this one.
+        TrainedModelAssignment.Builder currentBuilder = TrainedModelAssignment.Builder.empty(taskParams, null)
+            .setReason(currentSentinelReason)
             .calculateAndSetAssignmentState();
         TrainedModelAssignmentMetadata currentMetadata = TrainedModelAssignmentMetadata.Builder.empty()
-            .addNewAssignment(zeroAllocDeploymentId, zeroAllocBuilder)
+            .addNewAssignment(zeroAllocDeploymentId, currentBuilder)
             .build();
 
-        // Rebalancer output already contains the zero-allocation deployment
+        // Rebalancer output already contains the zero-allocation deployment — tagged with a distinct
+        // sentinel reason so the assertion can prove the rebalancer's version survived untouched.
         TrainedModelAssignmentMetadata.Builder rebalanced = TrainedModelAssignmentMetadata.Builder.empty()
             .addNewAssignment(
                 zeroAllocDeploymentId,
-                TrainedModelAssignment.Builder.empty(taskParams, null).calculateAndSetAssignmentState()
+                TrainedModelAssignment.Builder.empty(taskParams, null).setReason(rebalancedSentinelReason).calculateAndSetAssignmentState()
             );
 
         TrainedModelAssignmentMetadata result = TrainedModelAssignmentClusterService.setShuttingDownNodeRoutesToStopping(
@@ -2025,6 +2037,8 @@ public class TrainedModelAssignmentClusterServiceTests extends ESTestCase {
         assertThat(assignment, is(notNullValue()));
         assertThat(assignment.getNodeRoutingTable().entrySet(), is(empty()));
         assertThat(assignment.getAssignmentState(), equalTo(AssignmentState.STARTED));
+        // The rebalancer's version must win — the fast path must not overwrite it with currentMetadata's version.
+        assertThat(assignment.getReason(), equalTo(Optional.of(rebalancedSentinelReason)));
     }
 
     public void testSetShuttingDownNodeRoutesToStopping_GivenAnomalyAssignmentWithNoShuttingDownRoutes_ItIsStillPreserved() {
@@ -2054,6 +2068,65 @@ public class TrainedModelAssignmentClusterServiceTests extends ESTestCase {
         TrainedModelAssignment assignment = result.getDeploymentAssignment(deploymentId);
         assertThat("deployment routed only to healthy nodes must not be dropped by the anomaly branch", assignment, is(notNullValue()));
         assertThat(assignment.getAssignmentState(), equalTo(AssignmentState.STOPPING));
+    }
+
+    /**
+     * Verifies the {@link TrainedModelAssignmentClusterService#ASSIGNMENT_DROPPED_WITH_UNDRAINED_ROUTES_COUNTER} counter
+     * fires exactly once, labelled with the affected {@code deployment_id}, when an assignment was dropped by the
+     * rebalancer, had a non-empty routing table, and none of its routes pointed to a shutting-down node. Zero-allocation
+     * deployments and deployments that genuinely have at least one shutting-down route must not increment the counter.
+     */
+    public void testSetShuttingDownNodeRoutesToStopping_RecordsCounter_WhenDroppedAssignmentHasOnlyHealthyRoutes() {
+        var shuttingDownNodeId = "shutting-down-1";
+        var healthyNodeId = "node-1";
+        var undrainedDeploymentId = "deployment-routed-to-healthy-node";
+        var shuttingDownDeploymentId = "deployment-routed-to-shutting-down-node";
+        var zeroAllocDeploymentId = "deployment-zero-alloc";
+
+        TrainedModelAssignmentMetadata currentMetadata = TrainedModelAssignmentMetadata.Builder.empty()
+            // Dropped by rebalancer, non-empty routing, no shutting-down routes. Must fire the counter.
+            .addNewAssignment(
+                undrainedDeploymentId,
+                TrainedModelAssignment.Builder.empty(newParams(undrainedDeploymentId, 100), null)
+                    .addRoutingEntry(healthyNodeId, new RoutingInfo(1, 1, RoutingState.STARTED, ""))
+            )
+            // Must NOT fire the counter: the assignment has a route to a shutting-down node, which is the normal drain path.
+            .addNewAssignment(
+                shuttingDownDeploymentId,
+                TrainedModelAssignment.Builder.empty(newParams(shuttingDownDeploymentId, 100), null)
+                    .addRoutingEntry(shuttingDownNodeId, new RoutingInfo(1, 1, RoutingState.STARTED, ""))
+            )
+            // Must NOT fire the counter: zero-allocation deployments take the fast path before the metered branch.
+            .addNewAssignment(
+                zeroAllocDeploymentId,
+                TrainedModelAssignment.Builder.empty(newParams(zeroAllocDeploymentId, 100, 0, 1), null).calculateAndSetAssignmentState()
+            )
+            .build();
+
+        TrainedModelAssignmentMetadata.Builder rebalanced = TrainedModelAssignmentMetadata.Builder.empty();
+
+        RecordingMeterRegistry meterRegistry = new RecordingMeterRegistry();
+        LongCounter counter = meterRegistry.registerLongCounter(
+            TrainedModelAssignmentClusterService.ASSIGNMENT_DROPPED_WITH_UNDRAINED_ROUTES_COUNTER,
+            "test-scoped description",
+            "count"
+        );
+
+        TrainedModelAssignmentClusterService.setShuttingDownNodeRoutesToStopping(
+            currentMetadata,
+            Set.of(shuttingDownNodeId),
+            rebalanced,
+            counter
+        );
+
+        List<Measurement> measurements = meterRegistry.getRecorder()
+            .getMeasurements(
+                InstrumentType.LONG_COUNTER,
+                TrainedModelAssignmentClusterService.ASSIGNMENT_DROPPED_WITH_UNDRAINED_ROUTES_COUNTER
+            );
+        assertThat("counter must fire exactly once for the single qualifying deployment", measurements, hasSize(1));
+        assertThat(measurements.get(0).getLong(), equalTo(1L));
+        assertThat(measurements.get(0).attributes(), hasEntry("deployment_id", undrainedDeploymentId));
     }
 
     private static ClusterState createClusterState(List<String> nodeIds, Metadata metadata) {
@@ -2192,7 +2265,8 @@ public class TrainedModelAssignmentClusterServiceTests extends ESTestCase {
             nodeLoadDetector,
             systemAuditor,
             nodeAvailabilityZoneMapper,
-            client
+            client,
+            MeterRegistry.NOOP
         );
     }
 

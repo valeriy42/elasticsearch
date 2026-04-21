@@ -33,6 +33,7 @@ import org.elasticsearch.xpack.ml.inference.deployment.TrainedModelDeploymentTas
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TransportInferTrainedModelDeploymentAction extends TransportTasksAction<
@@ -42,6 +43,14 @@ public class TransportInferTrainedModelDeploymentAction extends TransportTasksAc
     InferTrainedModelDeploymentAction.Response> {
 
     private static final Logger logger = LogManager.getLogger(TransportInferTrainedModelDeploymentAction.class);
+
+    // Deployment IDs for which a missing deployment signals an operational issue, not client error
+    // (e.g., default ELSER deployments).
+    private static final Set<String> DEPLOYMENT_IDS_WORTH_WARNING_ON_MISSING_TASK = Set.of(
+        ".elser_model_2_linux-x86_64",
+        ".elser_model_2_linux-x86_64_search",
+        ".elser_model_2_linux-x86_64_ingest"
+    );
 
     private final ThreadPool threadPool;
 
@@ -76,11 +85,16 @@ public class TransportInferTrainedModelDeploymentAction extends TransportTasksAc
         } else if (failedNodeExceptions.isEmpty() == false) {
             throw failedNodeExceptions.get(0);
         } else if (tasks.isEmpty()) {
-            logger.warn(
-                "No deployment task found for [{}] on any node when handling inference request; "
-                    + "assignment may be missing from cluster state",
-                request.getId()
-            );
+            // Avoid logging client-caused 404s (typos, polling during deployment startup, tests, or intentionally
+            // stopped deployments) per the logging guideline in AGENTS.md. Only escalate to WARN for the preconfigured
+            // ELSER deployments whose absence points to an operational problem an admin can act on.
+            if (DEPLOYMENT_IDS_WORTH_WARNING_ON_MISSING_TASK.contains(request.getId())) {
+                logger.warn(
+                    "No deployment task found for [{}] on any node when handling inference request; "
+                        + "assignment may be missing from cluster state",
+                    request.getId()
+                );
+            }
             throw new ElasticsearchStatusException(
                 "Unable to find model deployment task [{}] please stop and start the deployment or try again momentarily",
                 RestStatus.NOT_FOUND,
