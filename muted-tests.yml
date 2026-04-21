@@ -408,6 +408,9 @@ tests:
 - class: org.elasticsearch.benchmark.vector.scorer.VectorScorerBFloat16BulkBenchmarkTests
   method: testRandom {p0=DOT_PRODUCT p1=1024}
   issue: https://github.com/elastic/elasticsearch/issues/146889
+- class: org.elasticsearch.benchmark.vector.scorer.VectorScorerBFloat16BulkBenchmarkTests
+  method: testSequential {p0=EUCLIDEAN p1=1024}
+  issue: https://github.com/elastic/elasticsearch/issues/146890
 
 # Examples:
 #
