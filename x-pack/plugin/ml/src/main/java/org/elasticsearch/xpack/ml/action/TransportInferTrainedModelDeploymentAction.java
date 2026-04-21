@@ -33,7 +33,6 @@ import org.elasticsearch.xpack.ml.inference.deployment.TrainedModelDeploymentTas
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class TransportInferTrainedModelDeploymentAction extends TransportTasksAction<
@@ -43,14 +42,6 @@ public class TransportInferTrainedModelDeploymentAction extends TransportTasksAc
     InferTrainedModelDeploymentAction.Response> {
 
     private static final Logger logger = LogManager.getLogger(TransportInferTrainedModelDeploymentAction.class);
-
-    // Deployment IDs for which a missing deployment signals an operational issue, not client error
-    // (e.g., default ELSER deployments).
-    private static final Set<String> DEPLOYMENT_IDS_WORTH_WARNING_ON_MISSING_TASK = Set.of(
-        ".elser_model_2_linux-x86_64",
-        ".elser_model_2_linux-x86_64_search",
-        ".elser_model_2_linux-x86_64_ingest"
-    );
 
     private final ThreadPool threadPool;
 
@@ -85,10 +76,13 @@ public class TransportInferTrainedModelDeploymentAction extends TransportTasksAc
         } else if (failedNodeExceptions.isEmpty() == false) {
             throw failedNodeExceptions.get(0);
         } else if (tasks.isEmpty()) {
-            if (DEPLOYMENT_IDS_WORTH_WARNING_ON_MISSING_TASK.contains(request.getId())) {
+            // Only warn about deployments with deployment IDs starting with '.' which are
+            // reserved for system-registered deployments (e.g., ElasticsearchInternalService's default
+            // ELSER/E5/rerank endpoints.
+            if (request.getId().startsWith(".")) {
                 logger.warn(
-                    "No deployment task found for [{}] on any node when handling inference request; "
-                        + "assignment may be missing from cluster state",
+                    "No deployment task found for system-registered deployment [{}] on any node when handling "
+                        + "inference request; assignment may be missing from cluster state",
                     request.getId()
                 );
             }

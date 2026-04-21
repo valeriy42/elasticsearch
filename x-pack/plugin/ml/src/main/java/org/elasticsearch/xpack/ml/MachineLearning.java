@@ -1407,8 +1407,7 @@ public class MachineLearning extends Plugin
                 new NodeLoadDetector(memoryTracker),
                 systemAuditor,
                 nodeAvailabilityZoneMapper,
-                client,
-                telemetryProvider.getMeterRegistry()
+                client
             )
         );
 
