@@ -698,7 +698,6 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
                 continue;
             }
 
-            
             TrainedModelAssignment.Builder assignmentBuilder = wasDroppedByRebalancer
                 ? TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
                     /*
