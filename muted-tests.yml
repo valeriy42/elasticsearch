@@ -498,6 +498,9 @@ tests:
 - class: org.elasticsearch.index.mapper.KeywordOffsetDocValuesLoaderTests
   method: testOffsetArrayRandomHighCardinality
   issue: https://github.com/elastic/elasticsearch/issues/147085
+- class: org.elasticsearch.index.mapper.IpOffsetDocValuesLoaderTests
+  method: testOffsetArrayRandomHighCardinality
+  issue: https://github.com/elastic/elasticsearch/issues/147086
 
 # Examples:
 #
