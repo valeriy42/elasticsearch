@@ -472,6 +472,9 @@ tests:
 - class: org.elasticsearch.xpack.inference.action.filter.ShardBulkInferenceActionFilterIT
   method: testBulkOperations {useLegacyFormat=true useSyntheticSource=true}
   issue: https://github.com/elastic/elasticsearch/issues/147169
+- class: org.elasticsearch.xpack.prometheus.PrometheusMetadataRestIT
+  method: testMultipleEntriesForSameMetricAcrossStreams
+  issue: https://github.com/elastic/elasticsearch/issues/147170
 
 # Examples:
 #
