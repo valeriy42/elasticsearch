@@ -490,6 +490,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
   method: test {csv-spec:stats.commonFilterExtractionWithAliasing}
   issue: https://github.com/elastic/elasticsearch/issues/147128
+- class: org.elasticsearch.xpack.inference.action.filter.ShardBulkInferenceActionFilterIT
+  method: testBulkOperations {useLegacyFormat=false useSyntheticSource=false}
+  issue: https://github.com/elastic/elasticsearch/issues/147130
 
 # Examples:
 #
