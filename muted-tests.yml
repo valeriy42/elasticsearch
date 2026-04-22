@@ -481,6 +481,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
   method: test {csv-spec:stats.statsWithSubstitutedExpressionOverFilters}
   issue: https://github.com/elastic/elasticsearch/issues/147125
+- class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
+  method: test {csv-spec:k8s-timeseries-arithmetic.division_metric_metric_grouping_filtering_ts}
+  issue: https://github.com/elastic/elasticsearch/issues/147126
 
 # Examples:
 #
