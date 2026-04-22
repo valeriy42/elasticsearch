@@ -307,9 +307,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
   method: test {csv-spec:inlinestats.multiIndexIpInlinestats_NonPushableCountWithFilter}
   issue: https://github.com/elastic/elasticsearch/issues/146740
-- class: org.elasticsearch.reindex.ReindexBasicTests
-  method: testCopyManyWithAutoSlicing
-  issue: https://github.com/elastic/elasticsearch/issues/146741
 - class: org.elasticsearch.xpack.searchablesnapshots.SearchableSnapshotReindexRelocationOnShutdownIT
   method: testReindexRelocatesWithSearchableSnapshotSource
   issue: https://github.com/elastic/elasticsearch/issues/146710
