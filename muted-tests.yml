@@ -496,6 +496,9 @@ tests:
 - class: org.elasticsearch.backwards.MixedClusterClientYamlTestSuiteIT
   method: test {p0=search.vectors/41_knn_search_byte_quantized_bfloat16/KNN Vector similarity search only}
   issue: https://github.com/elastic/elasticsearch/issues/147251
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.promql.UnresolvedPromqlFunction}
+  issue: https://github.com/elastic/elasticsearch/issues/147258
 
 # Examples:
 #
