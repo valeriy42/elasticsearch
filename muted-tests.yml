@@ -499,6 +499,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:tstep.tstep_with_request_timestamp_bounds_only}
   issue: https://github.com/elastic/elasticsearch/issues/147228
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.TopNBy}
+  issue: https://github.com/elastic/elasticsearch/issues/147232
 
 # Examples:
 #
