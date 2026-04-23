@@ -505,6 +505,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
   method: testTransform {class org.elasticsearch.xpack.esql.plan.physical.HashJoinExec}
   issue: https://github.com/elastic/elasticsearch/issues/147272
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testTransform {class org.elasticsearch.xpack.esql.plan.physical.LookupJoinExec}
+  issue: https://github.com/elastic/elasticsearch/issues/147273
 
 # Examples:
 #
