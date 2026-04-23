@@ -230,7 +230,7 @@ public class TrainedModelAssignmentMetadata implements Metadata.ProjectCustom {
         }
 
         public Set<String> deploymentIds() {
-            return deploymentRoutingEntries.keySet();
+            return Set.copyOf(deploymentRoutingEntries.keySet());
         }
 
         public Builder addNewAssignment(String deploymentId, TrainedModelAssignment.Builder assignment) {

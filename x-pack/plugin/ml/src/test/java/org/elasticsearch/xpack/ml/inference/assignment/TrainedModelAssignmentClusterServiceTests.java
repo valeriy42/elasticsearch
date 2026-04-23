@@ -2062,6 +2062,12 @@ public class TrainedModelAssignmentClusterServiceTests extends ESTestCase {
         TrainedModelAssignment assignment = result.getDeploymentAssignment(deploymentId);
         assertThat("deployment routed only to healthy nodes must not be dropped by the anomaly branch", assignment, is(notNullValue()));
         assertThat(assignment.getAssignmentState(), equalTo(AssignmentState.STOPPING));
+        assertThat(
+            "healthy-node route must be preserved so the node service can drain it on the next reconciliation",
+            assignment.getNodeRoutingTable(),
+            hasKey(healthyNodeId)
+        );
+        assertThat(assignment.getNodeRoutingTable().get(healthyNodeId).getState(), equalTo(RoutingState.STARTED));
     }
 
     private static ClusterState createClusterState(List<String> nodeIds, Metadata metadata) {
