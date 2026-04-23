@@ -196,8 +196,7 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
                             "failed to rebalance models, cluster state assignments may be stale. "
                                 + "error type: [{}], deployments at start of rebalance: {}",
                             e.getClass().getSimpleName(),
-                            deploymentIdsBeforeRebalance,
-                            e
+                            deploymentIdsBeforeRebalance
                         );
                     }
                 )
