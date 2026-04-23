@@ -499,6 +499,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
   method: testTransform {class org.elasticsearch.xpack.esql.plan.physical.SubqueryExec}
   issue: https://github.com/elastic/elasticsearch/issues/147270
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testTransform {class org.elasticsearch.xpack.esql.plan.physical.OutputExec}
+  issue: https://github.com/elastic/elasticsearch/issues/147271
 
 # Examples:
 #
