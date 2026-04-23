@@ -499,6 +499,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
   method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.TopN}
   issue: https://github.com/elastic/elasticsearch/issues/147233
+- class: org.elasticsearch.backwards.MixedClusterClientYamlTestSuiteIT
+  method: test {p0=search.vectors/41_knn_search_byte_quantized_bfloat16/KNN Vector similarity search only}
+  issue: https://github.com/elastic/elasticsearch/issues/147251
 
 # Examples:
 #
