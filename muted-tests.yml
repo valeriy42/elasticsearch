@@ -511,6 +511,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
   method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.TimeSeriesAggregate}
   issue: https://github.com/elastic/elasticsearch/issues/147280
+- class: org.elasticsearch.xpack.esql.tree.EsqlNodeSubclassTests
+  method: testReplaceChildren {class org.elasticsearch.xpack.esql.plan.logical.OrderBy}
+  issue: https://github.com/elastic/elasticsearch/issues/147281
 
 # Examples:
 #
