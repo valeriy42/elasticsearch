@@ -687,12 +687,7 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
             // Otherwise carry the existing assignment forward unchanged so it is never silently lost.
             if (existingAssignment.getNodeRoutingTable().isEmpty()) {
                 if (wasDroppedByRebalancer) {
-                    logger.warn(
-                        "Assignment [{}] was present before rebalance but missing from rebalancer output; "
-                            + "preserving existing assignment to avoid silent loss. If this fires in production, "
-                            + "capture the cluster state and rebalance logs and investigate the planner path",
-                        existingDeploymentId
-                    );
+                    warnAssignmentDroppedByRebalancer(existingDeploymentId, existingAssignment, shuttingDownNodeIds, builder);
                     builder.addOrOverwriteAssignment(
                         existingDeploymentId,
                         TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
@@ -703,12 +698,7 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
 
             TrainedModelAssignment.Builder assignmentBuilder;
             if (wasDroppedByRebalancer) {
-                logger.warn(
-                    "Assignment [{}] was present before rebalance but missing from rebalancer output; "
-                        + "preserving existing assignment to avoid silent loss. If this fires in production, "
-                        + "capture the cluster state and rebalance logs and investigate the planner path",
-                    existingDeploymentId
-                );
+                warnAssignmentDroppedByRebalancer(existingDeploymentId, existingAssignment, shuttingDownNodeIds, builder);
                 assignmentBuilder = TrainedModelAssignment.Builder.fromAssignment(existingAssignment)
                     /*
                      * The assignment existed before the rebalance but was not emitted by the rebalancer.
@@ -734,6 +724,27 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
             : "setShuttingDownNodeRoutesToStopping must not drop any assignment present in currentMetadata";
 
         return builder;
+    }
+
+    private static void warnAssignmentDroppedByRebalancer(
+        String deploymentId,
+        TrainedModelAssignment preRebalanceAssignment,
+        Set<String> shuttingDownNodeIds,
+        TrainedModelAssignmentMetadata.Builder rebalancerOutput
+    ) {
+        logger.warn(
+            "Assignment [{}] was present in cluster state before rebalance but is missing from "
+                + "rebalancer output; preserving it to avoid silent loss (this should not happen). "
+                + "Please report this warning. "
+                + "targetAllocations={}, preRebalanceRouting={}, preRebalanceState={}, "
+                + "shuttingDownNodes={}, rebalancerOutputDeployments={}",
+            deploymentId,
+            preRebalanceAssignment.getTaskParams().getNumberOfAllocations(),
+            preRebalanceAssignment.getNodeRoutingTable(),
+            preRebalanceAssignment.getAssignmentState(),
+            shuttingDownNodeIds,
+            rebalancerOutput.deploymentIds()
+        );
     }
 
     /**
