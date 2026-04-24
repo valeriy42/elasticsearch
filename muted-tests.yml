@@ -447,6 +447,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
   method: test {csv-spec:inlinestats.pushDown_SelectiveGroupingAndFilters_PastInlineJoin}
   issue: https://github.com/elastic/elasticsearch/issues/147485
+- class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
+  method: test {csv-spec:match-operator.testMatchInStatsPushable}
+  issue: https://github.com/elastic/elasticsearch/issues/147486
 
 # Examples:
 #
