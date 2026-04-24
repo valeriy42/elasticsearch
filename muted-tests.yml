@@ -444,6 +444,9 @@ tests:
 - class: org.elasticsearch.index.codec.vectors.cluster.HierarchicalKMeansTests
   method: testHKmeans
   issue: https://github.com/elastic/elasticsearch/issues/147482
+- class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
+  method: test {csv-spec:inlinestats.pushDown_SelectiveGroupingAndFilters_PastInlineJoin}
+  issue: https://github.com/elastic/elasticsearch/issues/147485
 
 # Examples:
 #
