@@ -456,6 +456,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
   method: test {csv-spec:match-phrase-function.testMatchPhraseInStatsNonPushable}
   issue: https://github.com/elastic/elasticsearch/issues/147488
+- class: org.elasticsearch.backwards.MixedClusterClientYamlTestSuiteIT
+  method: test {p0=index/100_field_name_length_limit/Test field name length limit}
+  issue: https://github.com/elastic/elasticsearch/issues/147494
 
 # Examples:
 #
