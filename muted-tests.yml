@@ -456,6 +456,9 @@ tests:
 - class: org.elasticsearch.compute.operator.topn.GroupedTopNOperatorTests
   method: testSplitOnSize
   issue: https://github.com/elastic/elasticsearch/issues/147533
+- class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
+  method: test {csv-spec:external-basic.complexQuery}
+  issue: https://github.com/elastic/elasticsearch/issues/147536
 
 # Examples:
 #
