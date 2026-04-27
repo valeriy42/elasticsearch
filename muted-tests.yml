@@ -504,6 +504,9 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeRandomMappingIT
   method: test
   issue: https://github.com/elastic/elasticsearch/issues/147610
+- class: org.elasticsearch.xpack.esql.qa.single_node.EsqlSpecForceStoredLoadingIT
+  method: test {csv-spec:fuse.fuseWithRowLinearAndMultiValueGroupColumn}
+  issue: https://github.com/elastic/elasticsearch/issues/147613
 
 # Examples:
 #
