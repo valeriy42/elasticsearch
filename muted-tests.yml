@@ -502,6 +502,9 @@ tests:
 - class: org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationActionTests
   method: testDoExecuteSetsCoordinatorNodeAndTaskIdOnRequest
   issue: https://github.com/elastic/elasticsearch/issues/147622
+- class: org.elasticsearch.cluster.routing.allocation.decider.WriteLoadConstraintDeciderIT
+  method: testAllocationExplainRebalancingNotPreferred
+  issue: https://github.com/elastic/elasticsearch/issues/147627
 
 # Examples:
 #
