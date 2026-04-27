@@ -113,7 +113,7 @@ public class DatafeedManagerTests extends ESTestCase {
         AtomicBoolean revokeCalled = new AtomicBoolean(false);
         doAnswer(invocation -> {
             revokeCalled.set(true);
-            String revokedKeyId = (String) invocation.getArguments()[0];
+            String revokedKeyId = invocation.getArgument(0);
             assertThat(revokedKeyId, is(apiKeyId));
             ActionListener<Boolean> listener = (ActionListener<Boolean>) invocation.getArguments()[2];
             listener.onResponse(true);
@@ -280,7 +280,7 @@ public class DatafeedManagerTests extends ESTestCase {
         AtomicBoolean revokeCalled = new AtomicBoolean(false);
         doAnswer(invocation -> {
             revokeCalled.set(true);
-            String revokedKeyId = (String) invocation.getArguments()[0];
+            String revokedKeyId = invocation.getArgument(0);
             assertThat(revokedKeyId, is(apiKeyId));
             ActionListener<Boolean> listener = (ActionListener<Boolean>) invocation.getArguments()[2];
             listener.onResponse(true);
@@ -358,7 +358,7 @@ public class DatafeedManagerTests extends ESTestCase {
         AtomicBoolean revokeCalled = new AtomicBoolean(false);
         doAnswer(invocation -> {
             revokeCalled.set(true);
-            String revokedKeyId = (String) invocation.getArguments()[0];
+            String revokedKeyId = invocation.getArgument(0);
             assertThat(revokedKeyId, is(apiKeyId));
             ActionListener<Boolean> listener = (ActionListener<Boolean>) invocation.getArguments()[2];
             listener.onResponse(true);
@@ -446,7 +446,7 @@ public class DatafeedManagerTests extends ESTestCase {
         AtomicBoolean revokeCalled = new AtomicBoolean(false);
         doAnswer(invocation -> {
             revokeCalled.set(true);
-            String revokedKeyId = (String) invocation.getArguments()[0];
+            String revokedKeyId = invocation.getArgument(0);
             assertThat(revokedKeyId, is(apiKeyId));
             ActionListener<Boolean> listener = (ActionListener<Boolean>) invocation.getArguments()[2];
             listener.onResponse(true);

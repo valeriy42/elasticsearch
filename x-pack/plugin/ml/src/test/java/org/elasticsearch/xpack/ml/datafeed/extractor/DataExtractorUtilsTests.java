@@ -12,6 +12,8 @@ import org.elasticsearch.action.search.ShardSearchFailure;
 import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.test.ESTestCase;
 
+import static org.hamcrest.Matchers.containsString;
+
 public class DataExtractorUtilsTests extends ESTestCase {
 
     public void testCheckForSkippedClustersNoSkips() {
@@ -34,8 +36,8 @@ public class DataExtractorUtilsTests extends ESTestCase {
                 ResourceNotFoundException.class,
                 () -> DataExtractorUtils.checkForSkippedClusters(response)
             );
-            assertThat(e.getMessage(), org.hamcrest.Matchers.containsString("1"));
-            assertThat(e.getMessage(), org.hamcrest.Matchers.containsString("3"));
+            assertThat(e.getMessage(), containsString("1"));
+            assertThat(e.getMessage(), containsString("3"));
         } finally {
             response.decRef();
         }
@@ -75,8 +77,8 @@ public class DataExtractorUtilsTests extends ESTestCase {
                 ResourceNotFoundException.class,
                 () -> DataExtractorUtils.checkForSkippedClusters(response)
             );
-            assertThat(e.getMessage(), org.hamcrest.Matchers.containsString("2"));
-            assertThat(e.getMessage(), org.hamcrest.Matchers.containsString("5"));
+            assertThat(e.getMessage(), containsString("2"));
+            assertThat(e.getMessage(), containsString("5"));
         } finally {
             response.decRef();
         }
