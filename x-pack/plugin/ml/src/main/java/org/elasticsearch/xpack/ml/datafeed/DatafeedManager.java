@@ -24,6 +24,7 @@ import org.elasticsearch.license.RemoteClusterLicenseChecker;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.crossproject.CrossProjectModeDecider;
+import org.elasticsearch.search.crossproject.ProjectRoutingResolver;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
@@ -297,7 +298,7 @@ public final class DatafeedManager {
 
     /**
      * Returns a (possibly augmented) update request that defaults {@code project_routing} to
-     * {@link DatafeedConfig#LOCAL_ONLY_PROJECT_ROUTING} when all of the following are true:
+     * {@link ProjectRoutingResolver#LOCAL_ONLY} when all of the following are true:
      * <ul>
      *   <li>This is a <em>first-time</em> UIAM migration — the existing config has no {@code cloudInternalApiKey}.</li>
      *   <li>The existing config has no explicit {@code project_routing} already set.</li>
@@ -319,16 +320,16 @@ public final class DatafeedManager {
         logger.info(
             "[{}] CPS migration: defaulting project_routing to [{}] to preserve local search scope",
             existingConfig.getId(),
-            DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING
+            ProjectRoutingResolver.LOCAL_ONLY
         );
         auditor.info(
             existingConfig.getId(),
             "CPS migration: project_routing defaulted to ["
-                + DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING
+                + ProjectRoutingResolver.LOCAL_ONLY
                 + "] to preserve local search scope. Use the update API to change the scope."
         );
         DatafeedUpdate augmentedUpdate = new DatafeedUpdate.Builder(request.getUpdate()).setProjectRouting(
-            DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING
+            ProjectRoutingResolver.LOCAL_ONLY
         ).build();
         return new UpdateDatafeedAction.Request(augmentedUpdate);
     }

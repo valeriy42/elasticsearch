@@ -22,6 +22,13 @@ public interface ProjectRoutingResolver {
     String ORIGIN = "_origin";
 
     /**
+     * Canonical origin-only project routing expression. When applied as {@code project_routing},
+     * searches are restricted to the origin (local) project only — equivalent to the pre-CPS,
+     * single-project behaviour.
+     */
+    String LOCAL_ONLY = ProjectTags.PROJECT_ALIAS + ":" + ORIGIN;
+
+    /**
      * Validates the provided project routing string.
      * This method is expected to throw an exception if the project routing is invalid.
      *

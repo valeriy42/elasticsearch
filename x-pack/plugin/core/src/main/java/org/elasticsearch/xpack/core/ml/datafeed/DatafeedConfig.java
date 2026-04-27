@@ -143,14 +143,6 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
     public static final ParseField PROJECT_ROUTING = new ParseField("project_routing");
     public static final ParseField CLOUD_INTERNAL_API_KEY = new ParseField("cloud_internal_api_key");
 
-    /**
-     * The canonical origin-only project routing expression. When applied as {@code project_routing}, searches are
-     * restricted to the origin (local) project only — equivalent to the pre-CPS, single-project behaviour.
-     * Used as the migration default so that legacy datafeeds gain UIAM credentials without unintentionally
-     * expanding their search scope to all linked projects.
-     */
-    public static final String LOCAL_ONLY_PROJECT_ROUTING = "_alias:_origin";
-
     // These parsers follow the pattern that metadata is parsed leniently (to allow for enhancements), whilst config is parsed strictly
     public static final ObjectParser<Builder, Void> LENIENT_PARSER = createParser(true);
     public static final ObjectParser<Builder, Void> STRICT_PARSER = createParser(false);

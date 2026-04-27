@@ -13,6 +13,7 @@ import org.elasticsearch.cluster.metadata.Metadata;
 import org.elasticsearch.cluster.metadata.ProjectMetadata;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
+import org.elasticsearch.search.crossproject.ProjectRoutingResolver;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
@@ -503,7 +504,7 @@ public class DatafeedManagerTests extends ESTestCase {
 
     /**
      * First-time UIAM migration: legacy datafeed with no cloudInternalApiKey and no projectRouting.
-     * Expects project_routing to be defaulted to LOCAL_ONLY_PROJECT_ROUTING in the stored config.
+     * Expects project_routing to be defaulted to {@link ProjectRoutingResolver#LOCAL_ONLY} in the stored config.
      */
     @SuppressWarnings("unchecked")
     public void testUpdateDatafeed_DefaultsProjectRoutingOnFirstTimeMigration() {
@@ -588,7 +589,7 @@ public class DatafeedManagerTests extends ESTestCase {
         assertThat(
             "project_routing must be defaulted to LOCAL_ONLY on first-time migration",
             capturedUpdate.get().getProjectRouting(),
-            is(DatafeedConfig.LOCAL_ONLY_PROJECT_ROUTING)
+            is(ProjectRoutingResolver.LOCAL_ONLY)
         );
     }
 
