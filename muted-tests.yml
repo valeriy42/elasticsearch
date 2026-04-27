@@ -505,6 +505,9 @@ tests:
 - class: org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationActionTests
   method: testDoExecuteWithHeaders
   issue: https://github.com/elastic/elasticsearch/issues/147634
+- class: org.elasticsearch.xpack.esql.qa.single_node.GenerativeApproximationIT
+  method: test {csv-spec:ints.valuesLong}
+  issue: https://github.com/elastic/elasticsearch/issues/147637
 
 # Examples:
 #
