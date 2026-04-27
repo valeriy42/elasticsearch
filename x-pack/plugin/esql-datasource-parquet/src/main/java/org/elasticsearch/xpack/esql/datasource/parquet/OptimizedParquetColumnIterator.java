@@ -23,6 +23,8 @@ import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.Type;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.common.breaker.CircuitBreaker;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.compute.data.Block;
 import org.elasticsearch.compute.data.BlockFactory;
 import org.elasticsearch.compute.data.Page;
@@ -43,6 +45,7 @@ import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Optimized Parquet column iterator behind the {@code optimized_reader} feature flag.
@@ -59,9 +62,10 @@ import java.util.concurrent.CompletableFuture;
  * <p>The existing baseline {@code ParquetColumnIterator} is never modified — it remains as the
  * stable fallback when {@code optimized_reader=false}.
  *
- * <p><b>Memory:</b> Prefetching an entire next row group's projected column bytes can be
- * significant on wide schemas. A future refinement may cap the prefetch budget or integrate
- * with the circuit breaker.
+ * <p><b>Memory:</b> Prefetch bytes are reserved on the REQUEST circuit breaker (via
+ * {@link BlockFactory#breaker()}) before async I/O starts. The reservation is released
+ * when prefetched data is consumed and cleared. If the breaker would trip, prefetch is
+ * skipped and the query falls back to synchronous I/O for that row group.
  */
 final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
 
@@ -82,7 +86,9 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
     private final StorageObject storageObject;
     private final ParquetStorageObjectAdapter adapter;
     private final Set<String> projectedColumnPaths;
+    private final CircuitBreaker breaker;
     private int rowBudget;
+    private final AtomicLong prefetchReservedBytes = new AtomicLong();
 
     private PageReadStore rowGroup;
     private ColumnReader[] columnReaders;
@@ -119,6 +125,7 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
         this.preloadedMetadata = preloadedMetadata;
         this.storageObject = storageObject;
         this.adapter = adapter;
+        this.breaker = blockFactory.breaker();
 
         this.projectedColumnPaths = buildProjectedColumnPaths(columnInfos);
 
@@ -172,6 +179,7 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
         rowGroup = reader.readNextFilteredRowGroup();
 
         adapter.clearPrefetchedData();
+        releasePrefetchReservation();
 
         if (rowGroup == null) {
             exhausted = true;
@@ -223,7 +231,8 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
     /**
      * Installs any previously prefetched row group data into the adapter so that
      * the next {@code readNextFilteredRowGroup()} can read from memory instead of
-     * issuing network I/O. Falls back gracefully on failure.
+     * issuing network I/O. Falls back gracefully on failure, releasing the breaker
+     * reservation if the prefetch did not produce usable data.
      */
     private void installPendingPrefetch() {
         if (pendingPrefetch == null) {
@@ -239,6 +248,8 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
                     rowGroupOrdinal + 1,
                     fileLocation
                 );
+            } else {
+                releasePrefetchReservation();
             }
         } catch (Exception e) {
             logger.debug(
@@ -247,6 +258,7 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
                 fileLocation,
                 e.getMessage()
             );
+            releasePrefetchReservation();
         } finally {
             pendingPrefetch = null;
         }
@@ -254,8 +266,11 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
 
     /**
      * Triggers an async prefetch of column chunk data for the next row group.
-     * The prefetch runs in the background; the data is consumed in the next
-     * {@link #advanceRowGroup()} call via {@link #installPendingPrefetch()}.
+     * Reserves the estimated bytes on the circuit breaker before starting I/O;
+     * if the breaker would trip, prefetch is skipped and the query falls back
+     * to synchronous I/O for that row group. The reservation is released when
+     * the prefetched data is cleared in {@link #advanceRowGroup()} or on
+     * failure/cancel.
      */
     private void triggerNextRowGroupPrefetch() {
         if (storageObject == null) {
@@ -267,18 +282,57 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
             return;
         }
         BlockMetaData nextBlock = rowGroups.get(nextRgOrdinal);
+        long prefetchBytes = ColumnChunkPrefetcher.computePrefetchBytes(nextBlock, projectedColumnPaths);
+        if (prefetchBytes <= 0) {
+            // No data to prefetch (empty projection or zero-byte columns). This is safe because
+            // installPendingPrefetch tolerates pendingPrefetch == null — no invariant is broken.
+            return;
+        }
+        try {
+            breaker.addEstimateBytesAndMaybeBreak(prefetchBytes, "esql_parquet_prefetch");
+            prefetchReservedBytes.set(prefetchBytes);
+        } catch (CircuitBreakingException e) {
+            logger.debug(
+                "Skipping prefetch for row group [{}] in [{}]: circuit breaker limit reached ({} bytes requested)",
+                nextRgOrdinal,
+                fileLocation,
+                prefetchBytes
+            );
+            return;
+        }
         try {
             pendingPrefetch = ColumnChunkPrefetcher.prefetchAsync(storageObject, nextBlock, projectedColumnPaths);
         } catch (Exception e) {
             logger.debug("Failed to initiate prefetch for row group [{}] in [{}]: {}", nextRgOrdinal, fileLocation, e.getMessage());
             pendingPrefetch = null;
+            releasePrefetchReservation();
         }
     }
 
+    /**
+     * Cancels the pending prefetch future and releases the breaker reservation. Note that
+     * {@link org.elasticsearch.common.util.concurrent.FutureUtils#cancel} only flips the
+     * future's cancelled state — it does not interrupt in-flight storage SDK reads. If the
+     * async read is already in progress, the SDK may still allocate a buffer that becomes
+     * untracked by the breaker until GC. Draining the future before releasing would risk
+     * blocking {@link #close()}, so we accept this brief discrepancy.
+     */
     private void cancelPendingPrefetch() {
         if (pendingPrefetch != null) {
             org.elasticsearch.common.util.concurrent.FutureUtils.cancel(pendingPrefetch);
             pendingPrefetch = null;
+        }
+        releasePrefetchReservation();
+    }
+
+    /**
+     * Releases any circuit breaker reservation held for prefetched data. Idempotent —
+     * safe to call multiple times (subsequent calls are no-ops when reservation is zero).
+     */
+    private void releasePrefetchReservation() {
+        long reserved = prefetchReservedBytes.getAndSet(0);
+        if (reserved > 0) {
+            breaker.addWithoutBreaking(-reserved);
         }
     }
 
@@ -540,6 +594,7 @@ final class OptimizedParquetColumnIterator implements CloseableIterator<Page> {
     public void close() throws IOException {
         cancelPendingPrefetch();
         adapter.clearPrefetchedData();
+        releasePrefetchReservation();
         try {
             if (rowGroup != null) {
                 rowGroup.close();
