@@ -526,6 +526,9 @@ tests:
 - class: org.elasticsearch.action.bulk.BulkRequestParserTests
   method: testIndexRequestRejectsRoutingAndSliceMetadataTogether
   issue: https://github.com/elastic/elasticsearch/issues/147518
+- class: org.elasticsearch.compute.aggregation.blockhash.BlockHashRandomizedTests
+  method: test {forcePackedHash=false groups=2 maxValuesPerPosition=1 dups=0 allowedTypes=[Basic[elementType=LONG], Basic[elementType=INT]]}
+  issue: https://github.com/elastic/elasticsearch/issues/147654
 
 # Examples:
 #
