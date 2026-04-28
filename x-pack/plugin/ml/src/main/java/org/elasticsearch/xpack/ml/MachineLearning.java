@@ -929,7 +929,8 @@ public class MachineLearning extends Plugin
             SCALE_TO_ZERO_AFTER_NO_REQUESTS_TIME,
             ANOMALY_DETECTION_ENABLED,
             DATA_FRAME_ANALYTICS_ENABLED,
-            NLP_ENABLED
+            NLP_ENABLED,
+            MlAnomaliesIndexUpdate.HEAL_REINDEXED_V7_ENABLED
         );
     }
 
@@ -1372,7 +1373,12 @@ public class MachineLearning extends Plugin
                     indexNameExpressionResolver,
                     client
                 ),
-                new MlAnomaliesIndexUpdate(indexNameExpressionResolver, client)
+                new MlAnomaliesIndexUpdate(
+                    indexNameExpressionResolver,
+                    client,
+                    anomalyDetectionAuditor,
+                    () -> clusterService.getClusterSettings().get(MlAnomaliesIndexUpdate.HEAL_REINDEXED_V7_ENABLED)
+                )
             )
         );
         clusterService.addListener(mlAutoUpdateService);
