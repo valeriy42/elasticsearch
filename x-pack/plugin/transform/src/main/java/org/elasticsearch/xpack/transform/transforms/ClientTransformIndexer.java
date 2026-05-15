@@ -67,6 +67,7 @@ import org.elasticsearch.xpack.core.transform.utils.ExceptionsHelper;
 import org.elasticsearch.xpack.transform.TransformExtension;
 import org.elasticsearch.xpack.transform.TransformServices;
 import org.elasticsearch.xpack.transform.checkpoint.CheckpointProvider;
+import org.elasticsearch.xpack.transform.checkpoint.CrossProjectHeadersHelper;
 import org.elasticsearch.xpack.transform.persistence.SeqNoPrimaryTermAndIndex;
 import org.elasticsearch.xpack.transform.persistence.TransformIndex;
 import org.elasticsearch.xpack.transform.transforms.pivot.SchemaUtil;
@@ -305,14 +306,33 @@ class ClientTransformIndexer extends TransformIndexer {
 
     @Override
     void doGetInitialProgress(SearchRequest request, ActionListener<SearchResponse> responseListener) {
-        ClientHelper.executeWithHeadersAsync(
-            transformConfig.getHeaders(),
-            ClientHelper.TRANSFORM_ORIGIN,
-            client,
-            TransportSearchAction.TYPE,
-            request,
-            responseListener
-        );
+        // Only execute cross-project headers action if feature flag is enabled and transform uses remote indices
+        if (TransformConfig.TRANSFORM_CROSS_PROJECT.isEnabled() && transformConfig.getSource().requiresRemoteCluster()) {
+            CrossProjectHeadersHelper.executeWithCrossProjectHeaders(
+                client,
+                transformConfig,
+                ActionListener.wrap(
+                    r -> ClientHelper.executeWithHeadersAsync(
+                        transformConfig.getHeaders(),
+                        ClientHelper.TRANSFORM_ORIGIN,
+                        client,
+                        TransportSearchAction.TYPE,
+                        request,
+                        responseListener
+                    ),
+                    responseListener::onFailure
+                )
+            );
+        } else {
+            ClientHelper.executeWithHeadersAsync(
+                transformConfig.getHeaders(),
+                ClientHelper.TRANSFORM_ORIGIN,
+                client,
+                TransportSearchAction.TYPE,
+                request,
+                responseListener
+            );
+        }
     }
 
     @Override
@@ -335,13 +355,29 @@ class ClientTransformIndexer extends TransformIndexer {
     }
 
     void validate(ActionListener<ValidateTransformAction.Response> listener) {
-        ClientHelper.executeAsyncWithOrigin(
-            client,
+        ClientHelper.executeWithHeadersAsync(
+            transformConfig.getHeaders(),
             ClientHelper.TRANSFORM_ORIGIN,
+            client,
             ValidateTransformAction.INSTANCE,
             new ValidateTransformAction.Request(transformConfig, false, AcknowledgedRequest.DEFAULT_ACK_TIMEOUT),
             listener
         );
+    }
+
+    @Override
+    void prepareCrossProjectSearch(ActionListener<Void> listener) {
+        // Only prepare cross-project search if:
+        // 1. The feature flag is enabled
+        // 2. The transform actually uses remote cluster indices
+        if (TransformConfig.TRANSFORM_CROSS_PROJECT.isEnabled() && transformConfig.getSource().requiresRemoteCluster()) {
+            CrossProjectHeadersHelper.executeWithCrossProjectHeaders(client, transformConfig, ActionListener.wrap(r -> {
+                logger.info("[{}] prepared cross-project search.", getJobId());
+                listener.onResponse(null);
+            }, listener::onFailure));
+        } else {
+            listener.onResponse(null);
+        }
     }
 
     /**
@@ -622,6 +658,19 @@ class ClientTransformIndexer extends TransformIndexer {
     }
 
     void doSearch(Tuple<String, SearchRequest> namedSearchRequest, ActionListener<SearchResponse> listener) {
+        // Only execute cross-project headers action if feature flag is enabled and transform uses remote indices
+        if (TransformConfig.TRANSFORM_CROSS_PROJECT.isEnabled() && transformConfig.getSource().requiresRemoteCluster()) {
+            CrossProjectHeadersHelper.executeWithCrossProjectHeaders(
+                client,
+                transformConfig,
+                ActionListener.wrap(v -> doSearchInternal(namedSearchRequest, listener), listener::onFailure)
+            );
+        } else {
+            doSearchInternal(namedSearchRequest, listener);
+        }
+    }
+
+    private void doSearchInternal(Tuple<String, SearchRequest> namedSearchRequest, ActionListener<SearchResponse> listener) {
         String name = namedSearchRequest.v1();
         SearchRequest originalRequest = namedSearchRequest.v2();
         // We want to treat a request to search 0 indices as a request to do nothing, not a request to search all indices

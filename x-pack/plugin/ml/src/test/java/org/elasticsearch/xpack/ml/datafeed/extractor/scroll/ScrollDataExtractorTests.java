@@ -11,7 +11,6 @@ import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.action.ActionFuture;
 import org.elasticsearch.action.ActionRequestBuilder;
 import org.elasticsearch.action.search.ClearScrollRequest;
-import org.elasticsearch.action.search.ClearScrollResponse;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
@@ -69,20 +68,16 @@ import java.util.stream.Collectors;
 import static java.util.Collections.emptyMap;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class ScrollDataExtractorTests extends ESTestCase {
 
     private Client client;
-    private ScrollDataExtractorFactory scrollDataExtractorFactory;
     private List<ActionRequestBuilder<?, SearchResponse>> capturedSearchRequests;
     private List<String> capturedContinueScrollIds;
     private ArgumentCaptor<ClearScrollRequest> capturedClearScrollRequests;
@@ -105,7 +100,7 @@ public class ScrollDataExtractorTests extends ESTestCase {
         }
 
         TestDataExtractor(ScrollDataExtractorContext context) {
-            super(client, context, timingStatsReporter, scrollDataExtractorFactory);
+            super(client, context, timingStatsReporter);
         }
 
         @Override
@@ -182,14 +177,10 @@ public class ScrollDataExtractorTests extends ESTestCase {
         scrollSize = 1000;
 
         capturedClearScrollRequests = ArgumentCaptor.forClass(ClearScrollRequest.class);
-        ActionFuture<ClearScrollResponse> successfulClearScrollFuture = mock(ActionFuture.class);
-        when(successfulClearScrollFuture.actionGet()).thenReturn(new ClearScrollResponse(true, 1));
         when(client.execute(same(TransportClearScrollAction.TYPE), capturedClearScrollRequests.capture())).thenReturn(
-            successfulClearScrollFuture
+            mock(ActionFuture.class)
         );
         timingStatsReporter = new DatafeedTimingStatsReporter(new DatafeedTimingStats(jobId), mock(DatafeedTimingStatsPersister.class));
-        scrollDataExtractorFactory = mock(ScrollDataExtractorFactory.class);
-        when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(false);
     }
 
     public void testSinglePageExtraction() throws IOException {
@@ -480,7 +471,8 @@ public class ScrollDataExtractorTests extends ESTestCase {
             2000,
             Collections.emptyMap(),
             SearchRequest.DEFAULT_INDICES_OPTIONS,
-            Collections.emptyMap()
+            Collections.emptyMap(),
+            null
         );
 
         TestDataExtractor extractor = new TestDataExtractor(context);
@@ -558,100 +550,42 @@ public class ScrollDataExtractorTests extends ESTestCase {
         assertThat(searchRequest, not(containsString("\"sort\"")));
     }
 
-    @SuppressWarnings("unchecked")
-    public void testDestroyTransfersFailedScrollIdsToFactory() throws IOException {
-        // Make all ClearScroll attempts fail to simulate an ongoing network disruption
-        ActionFuture<Object> failingFuture = mock(ActionFuture.class);
-        when(failingFuture.actionGet()).thenThrow(new ElasticsearchException("network disruption"));
-        when(client.execute(same(TransportClearScrollAction.TYPE), any(ClearScrollRequest.class))).thenReturn((ActionFuture) failingFuture);
+    public void testGetSummarySetsProjectRouting() {
+        String projectRouting = "_alias:prod-*";
+        ScrollDataExtractorContext context = createContext(1000L, 2300L, projectRouting);
+        TestDataExtractor extractor = new TestDataExtractor(context);
+        extractor.setNextResponse(createSummaryResponse(1001L, 2299L, 10L));
 
-        TestDataExtractor extractor = new TestDataExtractor(1000L, 2000L);
+        DataSummary summary = extractor.getSummary();
+        assertThat(summary.earliestTime(), equalTo(1001L));
+        assertThat(summary.latestTime(), equalTo(2299L));
+        assertThat(summary.totalHits(), equalTo(10L));
 
-        // Get a scroll ID by fetching the first page
-        SearchResponse response1 = createSearchResponse(Arrays.asList(1100L, 1200L), Arrays.asList("a1", "a2"), Arrays.asList("b1", "b2"));
-        extractor.setNextResponse(response1);
+        assertThat(capturedSearchRequests.size(), equalTo(1));
+        SearchRequest request = (SearchRequest) capturedSearchRequests.get(0).request();
+        assertThat(request.getProjectRouting(), equalTo(projectRouting));
+    }
+
+    public void testExtractionSetsProjectRouting() throws IOException {
+        String projectRouting = "_project._region:us-*";
+        ScrollDataExtractorContext context = createContext(1000L, 2000L, projectRouting);
+        TestDataExtractor extractor = new TestDataExtractor(context);
+        extractor.setNextResponse(createSearchResponse(Arrays.asList(1100L), Arrays.asList("a1"), Arrays.asList("b1")));
+
+        assertThat(extractor.hasNext(), is(true));
         extractor.next();
 
-        // Trigger an error on continue-scroll; clearScroll() will fail → ID lands in failedClearScrollIds
-        extractor.setNextResponseToError(new ElasticsearchException("boom"));
-        // Second error for the retry in tryNextStream (searchHasShardFailure path)
-        extractor.setNextResponseToError(new ElasticsearchException("boom"));
-        expectThrows(ElasticsearchException.class, extractor::next);
-
-        // destroy() retries the IDs from failedClearScrollIds; they still fail → transferred to factory
-        extractor.destroy();
-
-        verify(scrollDataExtractorFactory).addOrphanedScrollIds(anyList());
-    }
-
-    public void testDestroyRetriesFactoryOrphanedScrollIds() throws IOException {
-        // Return false during initScroll() so that call is skipped, then true during destroy().
-        when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(false, true);
-
-        TestDataExtractor extractor = new TestDataExtractor(1000L, 2000L);
-
-        SearchResponse response1 = createSearchResponse(Arrays.asList(1100L, 1200L), Arrays.asList("a1", "a2"), Arrays.asList("b1", "b2"));
-        extractor.setNextResponse(response1);
-        SearchResponse response2 = createEmptySearchResponse();
-        extractor.setNextResponse(response2);
-
-        extractor.next();
-        extractor.next(); // exhaust the scroll
-
-        extractor.destroy();
-
-        verify(scrollDataExtractorFactory).retryClearOrphanedScrollIds();
-    }
-
-    public void testDestroySkipsRetryWhenNoFactoryOrphans() throws IOException {
-        when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(false);
-
-        TestDataExtractor extractor = new TestDataExtractor(1000L, 2000L);
-
-        SearchResponse response1 = createSearchResponse(Arrays.asList(1100L, 1200L), Arrays.asList("a1", "a2"), Arrays.asList("b1", "b2"));
-        extractor.setNextResponse(response1);
-        SearchResponse response2 = createEmptySearchResponse();
-        extractor.setNextResponse(response2);
-
-        extractor.next();
-        extractor.next(); // exhaust the scroll
-
-        extractor.destroy();
-
-        verify(scrollDataExtractorFactory, never()).retryClearOrphanedScrollIds();
-    }
-
-    public void testInitScrollTriggersRetryWhenOrphansExist() throws IOException {
-        when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(true);
-
-        TestDataExtractor extractor = new TestDataExtractor(1000L, 2000L);
-
-        SearchResponse response1 = createSearchResponse(Arrays.asList(1100L, 1200L), Arrays.asList("a1", "a2"), Arrays.asList("b1", "b2"));
-        extractor.setNextResponse(response1);
-        SearchResponse response2 = createEmptySearchResponse();
-        extractor.setNextResponse(response2);
-
-        extractor.next(); // triggers initScroll()
-
-        verify(scrollDataExtractorFactory).retryClearOrphanedScrollIds();
-    }
-
-    public void testInitScrollSkipsRetryWhenNoOrphans() throws IOException {
-        when(scrollDataExtractorFactory.hasOrphanedScrollIds()).thenReturn(false);
-
-        TestDataExtractor extractor = new TestDataExtractor(1000L, 2000L);
-
-        SearchResponse response1 = createSearchResponse(Arrays.asList(1100L, 1200L), Arrays.asList("a1", "a2"), Arrays.asList("b1", "b2"));
-        extractor.setNextResponse(response1);
-        SearchResponse response2 = createEmptySearchResponse();
-        extractor.setNextResponse(response2);
-
-        extractor.next(); // triggers initScroll()
-
-        verify(scrollDataExtractorFactory, never()).retryClearOrphanedScrollIds();
+        // The first captured request should be the scroll search request with projectRouting set
+        assertThat(capturedSearchRequests.size(), greaterThanOrEqualTo(1));
+        SearchRequest request = (SearchRequest) capturedSearchRequests.get(0).request();
+        assertThat(request.getProjectRouting(), equalTo(projectRouting));
     }
 
     private ScrollDataExtractorContext createContext(long start, long end) {
+        return createContext(start, end, null);
+    }
+
+    private ScrollDataExtractorContext createContext(long start, long end, String projectRouting) {
         return new ScrollDataExtractorContext(
             jobId,
             extractedFields,
@@ -663,7 +597,8 @@ public class ScrollDataExtractorTests extends ESTestCase {
             end,
             Collections.emptyMap(),
             SearchRequest.DEFAULT_INDICES_OPTIONS,
-            Collections.emptyMap()
+            Collections.emptyMap(),
+            projectRouting
         );
     }
 

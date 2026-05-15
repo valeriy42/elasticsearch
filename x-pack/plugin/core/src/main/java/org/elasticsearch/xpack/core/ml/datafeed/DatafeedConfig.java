@@ -9,7 +9,9 @@ package org.elasticsearch.xpack.core.ml.datafeed;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.TransportVersion;
+import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.cluster.SimpleDiffable;
@@ -17,10 +19,12 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
+import org.elasticsearch.common.util.FeatureFlag;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.query.QueryBuilder;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.search.aggregations.bucket.composite.CompositeAggregationBuilder;
@@ -31,6 +35,7 @@ import org.elasticsearch.search.aggregations.support.ValuesSourceAggregationBuil
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.crossproject.CrossProjectModeDecider;
 import org.elasticsearch.search.sort.SortOrder;
+import org.elasticsearch.transport.RemoteClusterAware;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.ObjectParser;
 import org.elasticsearch.xcontent.ParseField;
@@ -59,6 +64,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
+import static org.elasticsearch.action.ValidateActions.addValidationError;
 import static org.elasticsearch.xpack.core.ClientHelper.assertNoAuthorizationHeader;
 import static org.elasticsearch.xpack.core.ml.job.messages.Messages.DATAFEED_AGGREGATIONS_COMPOSITE_AGG_DATE_HISTOGRAM_SORT;
 import static org.elasticsearch.xpack.core.ml.job.messages.Messages.DATAFEED_AGGREGATIONS_COMPOSITE_AGG_DATE_HISTOGRAM_SOURCE_MISSING_BUCKET;
@@ -108,6 +114,12 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
      */
     public static final String DOC_COUNT = "doc_count";
 
+    public static final FeatureFlag DATAFEED_CROSS_PROJECT = new FeatureFlag("datafeed_cross_project");
+
+    // TODO @valeriy42: Before merging to main, regenerate transport version files to get a unique version ID
+    // private static final TransportVersion DATAFEED_PROJECT_ROUTING = TransportVersion.fromName("datafeed_project_routing");
+    static final TransportVersion DATAFEED_PROJECT_ROUTING = TransportVersion.fromName("index_limit_exceeded_exception");
+
     // Accessing `Job.ID` here causes an NPE in tests as a DatafeedConfig parser is referenced in the Job parser
     public static final ParseField JOB_ID = new ParseField("job_id");
     public static final ParseField ID = new ParseField("datafeed_id");
@@ -126,6 +138,7 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
     public static final ParseField DELAYED_DATA_CHECK_CONFIG = new ParseField("delayed_data_check_config");
     public static final ParseField MAX_EMPTY_SEARCHES = new ParseField("max_empty_searches");
     public static final ParseField INDICES_OPTIONS = new ParseField("indices_options");
+    public static final ParseField PROJECT_ROUTING = new ParseField("project_routing");
 
     // These parsers follow the pattern that metadata is parsed leniently (to allow for enhancements), whilst config is parsed strictly
     public static final ObjectParser<Builder, Void> LENIENT_PARSER = createParser(true);
@@ -152,6 +165,22 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         Builder.checkNoMoreCompositeAggregations(histogramAggregation.getSubAggregations());
         Builder.checkHistogramAggregationHasChildMaxTimeAgg(histogramAggregation);
         Builder.checkHistogramIntervalIsPositive(histogramAggregation);
+    }
+
+    public ElasticsearchException validateNoCrossProjectWhenCrossProjectIsDisabled(
+        CrossProjectModeDecider crossProjectModeDecider,
+        ElasticsearchException validationException
+    ) {
+        if (crossProjectModeDecider.crossProjectEnabled() == false) {
+            // When cross-project is disabled, check if indices have cross-project mode enabled
+            if (indicesOptions != null && indicesOptions.crossProjectModeOptions().resolveIndexExpression()) {
+                validationException = new ElasticsearchStatusException(
+                    "Cross-project search is not enabled for Datafeeds",
+                    RestStatus.FORBIDDEN
+                );
+            }
+        }
+        return validationException;
     }
 
     private static ObjectParser<Builder, Void> createParser(boolean ignoreUnknownFields) {
@@ -209,6 +238,7 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
             INDICES_OPTIONS
         );
         parser.declareObject(Builder::setRuntimeMappings, (p, c) -> p.map(), SearchSourceBuilder.RUNTIME_MAPPINGS_FIELD);
+        parser.declareString(Builder::setProjectRouting, PROJECT_ROUTING);
         return parser;
     }
 
@@ -236,6 +266,8 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
     private final Integer maxEmptySearches;
     private final IndicesOptions indicesOptions;
     private final Map<String, Object> runtimeMappings;
+    @Nullable
+    private final String projectRouting;
 
     private DatafeedConfig(
         String id,
@@ -252,7 +284,8 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         DelayedDataCheckConfig delayedDataCheckConfig,
         Integer maxEmptySearches,
         IndicesOptions indicesOptions,
-        Map<String, Object> runtimeMappings
+        Map<String, Object> runtimeMappings,
+        String projectRouting
     ) {
         this.id = id;
         this.jobId = jobId;
@@ -269,6 +302,7 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         this.maxEmptySearches = maxEmptySearches;
         this.indicesOptions = ExceptionsHelper.requireNonNull(indicesOptions, INDICES_OPTIONS);
         this.runtimeMappings = Collections.unmodifiableMap(runtimeMappings);
+        this.projectRouting = projectRouting;
     }
 
     public DatafeedConfig(StreamInput in) throws IOException {
@@ -298,6 +332,11 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         maxEmptySearches = in.readOptionalVInt();
         indicesOptions = IndicesOptions.readIndicesOptions(in);
         runtimeMappings = in.readGenericMap();
+        if (in.getTransportVersion().supports(DATAFEED_PROJECT_ROUTING)) {
+            this.projectRouting = in.readOptionalString();
+        } else {
+            this.projectRouting = null;
+        }
     }
 
     public static DatafeedConfig withCrossProjectModeIfEnabled(DatafeedConfig datafeed, CrossProjectModeDecider crossProjectModeDecider) {
@@ -325,6 +364,35 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
      */
     public static String documentId(String datafeedId) {
         return TYPE + "-" + datafeedId;
+    }
+
+    public ActionRequestValidationException validateNoCrossProjectWhenCrossProjectIsDisabled(
+        CrossProjectModeDecider crossProjectModeDecider,
+        ActionRequestValidationException validationException
+    ) {
+        if (crossProjectModeDecider.crossProjectEnabled()) {
+            return validateNoCrossProjectWhenCrossProjectFeatureIsDisabled(DATAFEED_CROSS_PROJECT.isEnabled(), validationException);
+        }
+        return validationException;
+    }
+
+    // visible for testing
+    // remove both this and validateNoCrossProjectWhenCrossProjectIsDisabled when the feature is launched
+    ActionRequestValidationException validateNoCrossProjectWhenCrossProjectFeatureIsDisabled(
+        boolean featureEnabled,
+        ActionRequestValidationException validationException
+    ) {
+        if (featureEnabled == false) {
+            // verify there are no remote indices
+            var remoteIndices = RemoteClusterAware.getRemoteIndexExpressions(getIndices().toArray(new String[0]));
+            if (remoteIndices.isEmpty() == false) {
+                validationException = addValidationError(
+                    "Cross-project calls are not supported, but remote indices were requested: " + remoteIndices,
+                    validationException
+                );
+            }
+        }
+        return validationException;
     }
 
     public String getId() {
@@ -527,6 +595,11 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         return runtimeMappings;
     }
 
+    @Nullable
+    public String getProjectRouting() {
+        return projectRouting;
+    }
+
     @Override
     public void writeTo(StreamOutput out) throws IOException {
         out.writeString(id);
@@ -558,6 +631,9 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         out.writeOptionalVInt(maxEmptySearches);
         indicesOptions.writeIndicesOptions(out);
         out.writeGenericMap(runtimeMappings);
+        if (out.getTransportVersion().supports(DATAFEED_PROJECT_ROUTING)) {
+            out.writeOptionalString(projectRouting);
+        }
     }
 
     @Override
@@ -625,6 +701,9 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         if (runtimeMappings.isEmpty() == false) {
             builder.field(SearchSourceBuilder.RUNTIME_MAPPINGS_FIELD.getPreferredName(), runtimeMappings);
         }
+        if (projectRouting != null) {
+            builder.field(PROJECT_ROUTING.getPreferredName(), projectRouting);
+        }
         builder.endObject();
         return builder;
     }
@@ -685,7 +764,8 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
             && Objects.equals(this.delayedDataCheckConfig, that.delayedDataCheckConfig)
             && Objects.equals(this.maxEmptySearches, that.maxEmptySearches)
             && Objects.equals(this.indicesOptions, that.indicesOptions)
-            && Objects.equals(this.runtimeMappings, that.runtimeMappings);
+            && Objects.equals(this.runtimeMappings, that.runtimeMappings)
+            && Objects.equals(this.projectRouting, that.projectRouting);
     }
 
     @Override
@@ -705,7 +785,8 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
             delayedDataCheckConfig,
             maxEmptySearches,
             indicesOptions,
-            runtimeMappings
+            runtimeMappings,
+            projectRouting
         );
     }
 
@@ -779,6 +860,7 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
         private Integer maxEmptySearches;
         private IndicesOptions indicesOptions;
         private Map<String, Object> runtimeMappings = Collections.emptyMap();
+        private String projectRouting;
 
         public Builder() {}
 
@@ -804,6 +886,7 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
             this.maxEmptySearches = config.getMaxEmptySearches();
             this.indicesOptions = config.indicesOptions;
             this.runtimeMappings = new HashMap<>(config.runtimeMappings);
+            this.projectRouting = config.projectRouting;
         }
 
         public Builder(StreamInput in) throws IOException {
@@ -835,6 +918,9 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
                 indicesOptions = IndicesOptions.readIndicesOptions(in);
             }
             runtimeMappings = in.readGenericMap();
+            if (in.getTransportVersion().supports(DATAFEED_PROJECT_ROUTING)) {
+                projectRouting = in.readOptionalString();
+            }
         }
 
         @Override
@@ -871,6 +957,9 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
                 indicesOptions.writeIndicesOptions(out);
             }
             out.writeGenericMap(runtimeMappings);
+            if (out.getTransportVersion().supports(DATAFEED_PROJECT_ROUTING)) {
+                out.writeOptionalString(projectRouting);
+            }
         }
 
         @Override
@@ -892,7 +981,8 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
                 && Objects.equals(delayedDataCheckConfig, builder.delayedDataCheckConfig)
                 && Objects.equals(maxEmptySearches, builder.maxEmptySearches)
                 && Objects.equals(indicesOptions, builder.indicesOptions)
-                && Objects.equals(runtimeMappings, builder.runtimeMappings);
+                && Objects.equals(runtimeMappings, builder.runtimeMappings)
+                && Objects.equals(projectRouting, builder.projectRouting);
         }
 
         @Override
@@ -912,7 +1002,8 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
                 delayedDataCheckConfig,
                 maxEmptySearches,
                 indicesOptions,
-                runtimeMappings
+                runtimeMappings,
+                projectRouting
             );
         }
 
@@ -1055,6 +1146,15 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
             return this;
         }
 
+        public Builder setProjectRouting(String projectRouting) {
+            this.projectRouting = projectRouting;
+            return this;
+        }
+
+        public String getProjectRouting() {
+            return projectRouting;
+        }
+
         public DatafeedConfig build() {
             ExceptionsHelper.requireNonNull(id, ID.getPreferredName());
             ExceptionsHelper.requireNonNull(jobId, JOB_ID.getPreferredName());
@@ -1074,6 +1174,22 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
                 indicesOptions = IndicesOptions.STRICT_EXPAND_OPEN_HIDDEN_FORBID_CLOSED;
             }
 
+            if (indicesOptions.crossProjectModeOptions().resolveIndexExpression() && DATAFEED_CROSS_PROJECT.isEnabled() == false) {
+                throw new ElasticsearchStatusException("Cross-project search is not enabled for Datafeeds", RestStatus.FORBIDDEN);
+            }
+
+            // Validate project_routing requires CPS feature flag
+            // Note: CPS mode in IndicesOptions is applied at runtime via withCrossProjectModeIfEnabled()
+            // when the datafeed starts, so we don't validate it here.
+            if (projectRouting != null) {
+                if (DATAFEED_CROSS_PROJECT.isEnabled() == false) {
+                    throw new ElasticsearchStatusException(
+                        "project_routing requires cross-project search feature to be enabled for Datafeeds",
+                        RestStatus.FORBIDDEN
+                    );
+                }
+            }
+
             return new DatafeedConfig(
                 id,
                 jobId,
@@ -1089,7 +1205,8 @@ public class DatafeedConfig implements SimpleDiffable<DatafeedConfig>, ToXConten
                 delayedDataCheckConfig,
                 maxEmptySearches,
                 indicesOptions,
-                runtimeMappings
+                runtimeMappings,
+                projectRouting
             );
         }
 
