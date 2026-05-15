@@ -96,9 +96,9 @@ public abstract class AbstractFieldDataTestCase extends ESSingleNodeTestCase {
             if (docValues) {
                 fieldType = new KeywordFieldMapper.Builder(fieldName, defaultIndexSettings()).build(context).fieldType();
             } else {
-                fieldType = new TextFieldMapper.Builder(fieldName, createDefaultIndexAnalyzers()).fielddata(true)
-                    .build(context)
-                    .fieldType();
+                fieldType = new TextFieldMapper.Builder(fieldName, defaultIndexSettings(), createDefaultIndexAnalyzers(), false).fielddata(
+                    true
+                ).build(context).fieldType();
             }
         } else if (type.equals("float")) {
             fieldType = new NumberFieldMapper.Builder(
@@ -173,7 +173,7 @@ public abstract class AbstractFieldDataTestCase extends ESSingleNodeTestCase {
             new ByteBuffersDirectory(),
             new IndexWriterConfig(new StandardAnalyzer()).setMergePolicy(new LogByteSizeMergePolicy())
         );
-        searchExecutionContext = indexService.newSearchExecutionContext(0, 0, null, () -> 0, null, emptyMap());
+        searchExecutionContext = indexService.newSearchExecutionContext(0, 0, null, () -> 0, null, emptyMap(), null, null);
     }
 
     protected final List<LeafReaderContext> refreshReader() throws Exception {

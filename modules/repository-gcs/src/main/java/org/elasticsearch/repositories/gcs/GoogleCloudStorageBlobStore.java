@@ -21,6 +21,7 @@ import com.google.cloud.storage.StorageException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.lucene.store.AlreadyClosedException;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.common.BackoffPolicy;
@@ -44,6 +45,7 @@ import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.Streams;
 import org.elasticsearch.core.SuppressForbidden;
 import org.elasticsearch.core.TimeValue;
+import org.elasticsearch.repositories.RepositoriesMetrics;
 import org.elasticsearch.rest.RestStatus;
 
 import java.io.ByteArrayInputStream;
@@ -115,6 +117,8 @@ class GoogleCloudStorageBlobStore implements BlobStore {
     private final int bufferSize;
     private final BigArrays bigArrays;
     private final BackoffPolicy casBackoffPolicy;
+    private volatile boolean closed = false;
+    private final boolean tenaciousRetriesEnabled;
 
     GoogleCloudStorageBlobStore(
         ProjectId projectId,
@@ -136,9 +140,16 @@ class GoogleCloudStorageBlobStore implements BlobStore {
         this.statsCollector = statsCollector;
         this.bufferSize = bufferSize;
         this.casBackoffPolicy = casBackoffPolicy;
+        this.tenaciousRetriesEnabled = storageService.clientSettings(projectId, clientName).getTenaciousRetriesEnabled();
     }
 
+    /**
+     * @throws org.apache.lucene.store.AlreadyClosedException if the blob store is closed
+     */
     MeteredStorage client() throws IOException {
+        if (closed) {
+            throw new AlreadyClosedException("blob store for repository " + repositoryName + "is closed");
+        }
         return storageService.client(projectId, clientName, repositoryName, statsCollector);
     }
 
@@ -146,13 +157,30 @@ class GoogleCloudStorageBlobStore implements BlobStore {
         return storageService.clientSettings(projectId, clientName).getMaxRetries();
     }
 
+    long getMegabytesCopiedPerChunk() {
+        return storageService.clientSettings(projectId, clientName).getMegabytesCopiedPerChunk();
+    }
+
+    RepositoriesMetrics getRepositoriesMetrics() {
+        return statsCollector.getRepositoriesMetrics();
+    }
+
+    String getRepositoryName() {
+        return repositoryName;
+    }
+
     @Override
     public BlobContainer blobContainer(BlobPath path) {
+        if (tenaciousRetriesEnabled && storageService.isServerless()) {
+            return new GcsTenaciousRetryBlobContainer(new GoogleCloudStorageBlobContainer(path, this), getRepositoriesMetrics());
+        }
+
         return new GoogleCloudStorageBlobContainer(path, this);
     }
 
     @Override
     public void close() {
+        closed = true;
         storageService.closeRepositoryClients(projectId, repositoryName);
     }
 

@@ -17,7 +17,7 @@ import org.apache.lucene.document.StoredField;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
-import org.elasticsearch.index.mapper.MapperService.MergeReason;
+import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.plugins.internal.XContentMeteringParserDecorator;
 import org.elasticsearch.xcontent.XContentType;
 
@@ -40,9 +40,9 @@ public class ParsedDocument {
 
     private final long normalizedSize;
 
-    private BytesReference source;
-    private XContentType xContentType;
-    private Mapping dynamicMappingsUpdate;
+    private final BytesReference source;
+    private final XContentType xContentType;
+    private CompressedXContent dynamicMappingsUpdate;
 
     /**
      * Create a no-op tombstone document
@@ -111,10 +111,10 @@ public class ParsedDocument {
 
             if (useDocValuesSkipper) {
                 document.add(SortedDocValuesField.indexedField(TimeSeriesIdFieldMapper.NAME, timeSeriesId));
-                document.add(SortedNumericDocValuesField.indexedField("@timestamp", timestamp));
+                document.add(SortedNumericDocValuesField.indexedField(DataStreamTimestampFieldMapper.DEFAULT_PATH, timestamp));
             } else {
                 document.add(new SortedDocValuesField(TimeSeriesIdFieldMapper.NAME, timeSeriesId));
-                document.add(new LongField("@timestamp", timestamp, Field.Store.NO));
+                document.add(new LongField(DataStreamTimestampFieldMapper.DEFAULT_PATH, timestamp, Field.Store.NO));
             }
             var field = new SortedDocValuesField(
                 TimeSeriesRoutingHashFieldMapper.NAME,
@@ -145,9 +145,22 @@ public class ParsedDocument {
         String id,
         String routing,
         List<LuceneDocument> documents,
+        SourceToParse.Source source,
+        CompressedXContent dynamicMappingsUpdate,
+        long normalizedSize
+    ) {
+        this(version, seqID, id, routing, documents, source.originalBytes(), source.xContentType(), dynamicMappingsUpdate, normalizedSize);
+    }
+
+    public ParsedDocument(
+        Field version,
+        SeqNoFieldMapper.SequenceIDFields seqID,
+        String id,
+        String routing,
+        List<LuceneDocument> documents,
         BytesReference source,
         XContentType xContentType,
-        Mapping dynamicMappingsUpdate,
+        CompressedXContent dynamicMappingsUpdate,
         long normalizedSize
     ) {
         this.version = version;
@@ -197,24 +210,17 @@ public class ParsedDocument {
         return this.xContentType;
     }
 
-    public void setSource(BytesReference source, XContentType xContentType) {
-        this.source = source;
-        this.xContentType = xContentType;
-    }
-
     /**
      * Return dynamic updates to mappings or {@code null} if there were no
      * updates to the mappings.
      */
-    public Mapping dynamicMappingsUpdate() {
+    public CompressedXContent dynamicMappingsUpdate() {
         return dynamicMappingsUpdate;
     }
 
-    public void addDynamicMappingsUpdate(Mapping update) {
+    public void addDynamicMappingsUpdate(CompressedXContent update) {
         if (dynamicMappingsUpdate == null) {
             dynamicMappingsUpdate = update;
-        } else {
-            dynamicMappingsUpdate = dynamicMappingsUpdate.merge(update, MergeReason.MAPPING_AUTO_UPDATE, Long.MAX_VALUE);
         }
     }
 

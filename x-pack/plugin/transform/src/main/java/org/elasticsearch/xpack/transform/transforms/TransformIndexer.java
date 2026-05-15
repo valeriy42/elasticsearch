@@ -29,6 +29,7 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.reindex.BulkByScrollResponse;
 import org.elasticsearch.index.reindex.DeleteByQueryRequest;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.tasks.Task;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.core.indexing.AsyncTwoPhaseIndexer;
 import org.elasticsearch.xpack.core.indexing.IndexerState;
@@ -98,9 +99,12 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
     // In face of errors, exponential backoff scheme is used.
     public static final TimeValue DEFAULT_TRIGGER_SAVE_STATE_INTERVAL = TimeValue.timeValueSeconds(60);
 
+    private final ThreadPool threadPool;
+    private final boolean supportsMultipleProjects;
     protected final TransformConfigManager transformsConfigManager;
     private final CheckpointProvider checkpointProvider;
     protected final TransformFailureHandler failureHandler;
+    private final IndicesOptions strictIndicesOptions;
     private volatile float docsPerSecond = -1;
 
     protected final TransformAuditor auditor;
@@ -153,7 +157,9 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
     ) {
         // important: note that we pass the context object as lock object
         super(threadPool, initialState, initialPosition, jobStats, context);
+        this.threadPool = threadPool;
         ExceptionsHelper.requireNonNull(transformServices, "transformServices");
+        this.supportsMultipleProjects = transformServices.projectResolver().supportsMultipleProjects();
         this.transformsConfigManager = transformServices.configManager();
         this.checkpointProvider = ExceptionsHelper.requireNonNull(checkpointProvider, "checkpointProvider");
         this.auditor = transformServices.auditor();
@@ -162,6 +168,11 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
         this.lastCheckpoint = ExceptionsHelper.requireNonNull(lastCheckpoint, "lastCheckpoint");
         this.nextCheckpoint = ExceptionsHelper.requireNonNull(nextCheckpoint, "nextCheckpoint");
         this.context = ExceptionsHelper.requireNonNull(context, "context");
+        ExceptionsHelper.requireNonNull(transformServices.crossProjectModeDecider(), "crossProjectModeDecider");
+        this.strictIndicesOptions = transformServices.crossProjectModeDecider().crossProjectEnabled()
+            && TransformConfig.TRANSFORM_CROSS_PROJECT.isEnabled()
+                ? SearchRequest.DEFAULT_CPS_INDICES_OPTIONS
+                : SearchRequest.DEFAULT_INDICES_OPTIONS;
         // give runState a default
         this.runState = RunState.APPLY_RESULTS;
 
@@ -185,8 +196,6 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
     abstract void persistState(TransformState state, ActionListener<Void> listener);
 
     abstract void validate(ActionListener<ValidateTransformAction.Response> listener);
-
-    abstract void prepareCrossProjectSearch(ActionListener<Void> listener);
 
     @Override
     protected String getJobId() {
@@ -313,45 +322,42 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
             initializeFunction();
 
             if (initialRun()) {
-                prepareCrossProjectSearch(ActionListener.wrap(ignored -> {
-                    createCheckpoint(ActionListener.wrap(cp -> {
-                        nextCheckpoint = cp;
-                        // If nextCheckpoint > 1, this means that we are now on the checkpoint AFTER the batch checkpoint
-                        // Consequently, the idea of percent complete no longer makes sense.
-                        if (nextCheckpoint.getCheckpoint() > 1) {
-                            progress = new TransformProgress(null, 0L, 0L);
+                createCheckpoint(ActionListener.wrap(cp -> {
+                    nextCheckpoint = cp;
+                    // If nextCheckpoint > 1, this means that we are now on the checkpoint AFTER the batch checkpoint
+                    // Consequently, the idea of percent complete no longer makes sense.
+                    if (nextCheckpoint.getCheckpoint() > 1) {
+                        progress = new TransformProgress(null, 0L, 0L);
+                        finalListener.onResponse(null);
+                        return;
+                    }
+
+                    // get progress information
+                    SearchRequest request = new SearchRequest(transformConfig.getSource().getIndex());
+                    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder().runtimeMappings(
+                        transformConfig.getSource().getRuntimeMappings()
+                    );
+
+                    function.buildSearchQueryForInitialProgress(searchSourceBuilder);
+                    searchSourceBuilder.query(QueryBuilders.boolQuery().filter(buildFilterQuery()).filter(searchSourceBuilder.query()));
+                    request.allowPartialSearchResults(false).indicesOptions(strictIndicesOptions).source(searchSourceBuilder);
+
+                    doGetInitialProgress(request, ActionListener.wrap(response -> {
+                        function.getInitialProgressFromResponse(response, ActionListener.wrap(newProgress -> {
+                            logger.trace("[{}] reset the progress from [{}] to [{}].", getJobId(), progress, newProgress);
+                            progress = newProgress != null ? newProgress : new TransformProgress();
                             finalListener.onResponse(null);
-                            return;
-                        }
-
-                        // get progress information
-                        SearchRequest request = new SearchRequest(transformConfig.getSource().getIndex());
-                        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
-
-                        function.buildSearchQueryForInitialProgress(searchSourceBuilder);
-                        searchSourceBuilder.query(QueryBuilders.boolQuery().filter(buildFilterQuery()).filter(searchSourceBuilder.query()));
-                        request.allowPartialSearchResults(false).source(searchSourceBuilder);
-
-                        doGetInitialProgress(request, ActionListener.wrap(response -> {
-                            function.getInitialProgressFromResponse(response, ActionListener.wrap(newProgress -> {
-                                logger.trace("[{}] reset the progress from [{}] to [{}].", getJobId(), progress, newProgress);
-                                progress = newProgress != null ? newProgress : new TransformProgress();
-                                finalListener.onResponse(null);
-                            }, failure -> {
-                                progress = new TransformProgress();
-                                logger.warn(() -> "[" + getJobId() + "] unable to load progress information for task.", failure);
-                                finalListener.onResponse(null);
-                            }));
                         }, failure -> {
                             progress = new TransformProgress();
                             logger.warn(() -> "[" + getJobId() + "] unable to load progress information for task.", failure);
                             finalListener.onResponse(null);
                         }));
-                    }, listener::onFailure));
-                    return;
-
+                    }, failure -> {
+                        progress = new TransformProgress();
+                        logger.warn(() -> "[" + getJobId() + "] unable to load progress information for task.", failure);
+                        finalListener.onResponse(null);
+                    }));
                 }, listener::onFailure));
-
             } else {
                 finalListener.onResponse(null);
             }
@@ -671,6 +677,20 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
                 return false;
             }
 
+            if (supportsMultipleProjects) {
+                // The scheduler fires triggered() on a thread without project context. Ensure the project ID is
+                // set before dispatching the async job so that all outbound calls (search, bulk, etc.) inherit it.
+                // HEADERS_TO_COPY preserves the project ID through stashContext() and thread pool dispatches.
+                // newStoredContext() prevents the header from leaking to other transforms on the same scheduler thread.
+                String existingProjectId = threadPool.getThreadContext().getHeader(Task.X_ELASTIC_PROJECT_ID_HTTP_HEADER);
+                if (existingProjectId == null) {
+                    try (var ignored = threadPool.getThreadContext().newStoredContext()) {
+                        threadPool.getThreadContext().putHeader(Task.X_ELASTIC_PROJECT_ID_HTTP_HEADER, context.projectId().id());
+                        return super.maybeTriggerAsyncJob(now);
+                    }
+                }
+            }
+
             return super.maybeTriggerAsyncJob(now);
         }
     }
@@ -797,7 +817,7 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
         logger.debug("[{}] updating persistent state of transform to [{}].", transformConfig.getId(), state.toString());
 
         // we might need to call the save state listeners, but do not want to stop rolling
-        persistStateWithAutoStop(state, ActionListener.wrap(r -> {
+        persistStateWithAutoStop(state, ActionListener.runAfter(ActionListener.wrap(r -> {
             try {
                 if (saveStateListenersAtTheMomentOfCalling != null) {
                     ActionListener.onResponse(saveStateListenersAtTheMomentOfCalling, r);
@@ -807,7 +827,6 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
                 logger.warn(msg, onResponseException);
             } finally {
                 lastSaveStateMilliseconds = TimeUnit.NANOSECONDS.toMillis(getTimeNanos());
-                next.run();
             }
         }, e -> {
             try {
@@ -817,10 +836,8 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
             } catch (Exception onFailureException) {
                 String msg = LoggerMessageFormat.format("[{}] failed notifying saveState listeners, ignoring.", getJobId());
                 logger.warn(msg, onFailureException);
-            } finally {
-                next.run();
             }
-        }));
+        }), next));
     }
 
     private void persistStateWithAutoStop(TransformState state, ActionListener<Void> listener) {
@@ -1134,11 +1151,7 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
         );
 
         request.allowPartialSearchResults(false) // shard failures should fail the request
-            .indicesOptions(
-                IndicesOptions.builder(IndicesOptions.LENIENT_EXPAND_OPEN)
-                    .crossProjectModeOptions(new IndicesOptions.CrossProjectModeOptions(true))
-                    .build()
-            ); // TODO: make configurable
+            .indicesOptions(getConfig().getSource().indicesOptions());
 
         changeCollector.buildChangesQuery(sourceBuilder, position != null ? position.getBucketsPosition() : null, context.getPageSize());
 
@@ -1201,11 +1214,7 @@ public abstract class TransformIndexer extends AsyncTwoPhaseIndexer<TransformInd
 
         return request.source(sourceBuilder)
             .allowPartialSearchResults(false) // shard failures should fail the request
-            .indicesOptions(
-                IndicesOptions.builder(IndicesOptions.LENIENT_EXPAND_OPEN)
-                    .crossProjectModeOptions(new IndicesOptions.CrossProjectModeOptions(true))
-                    .build()
-            ); // TODO: make configurable
+            .indicesOptions(getConfig().getSource().indicesOptions());
     }
 
     /**

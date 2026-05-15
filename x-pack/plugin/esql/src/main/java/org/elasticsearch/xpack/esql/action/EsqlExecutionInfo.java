@@ -138,7 +138,7 @@ public class EsqlExecutionInfo implements ChunkedToXContentObject, Writeable {
     @Override
     public void writeTo(StreamOutput out) throws IOException {
         if (out.getTransportVersion().supports(EXECUTION_PROFILE_FORMAT_VERSION) == false) {
-            out.writeOptionalTimeValue(null);
+            out.writeOptionalTimeValue(overallTook());
         }
         if (clusterInfo != null && clusterInfoInitializing == false) {
             out.writeCollection(clusterInfo.values());
@@ -172,7 +172,7 @@ public class EsqlExecutionInfo implements ChunkedToXContentObject, Writeable {
      */
     public void markEndQuery() {
         if (isMainPlan()) {
-            queryProfile.stop();
+            queryProfile.stopAllStartedMarkers();
         }
     }
 
@@ -231,7 +231,9 @@ public class EsqlExecutionInfo implements ChunkedToXContentObject, Writeable {
         swapCluster(clusterAlias, (ca, previous) -> {
             var expr = indexExpression;
             if (previous != null) {
-                expr = previous.getIndexExpression() + "," + indexExpression;
+                expr = Strings.isNullOrBlank(indexExpression)
+                    ? previous.getIndexExpression()
+                    : previous.getIndexExpression() + "," + indexExpression;
             }
             var displayClusterAlias = Objects.equals(clusterAlias, RemoteClusterAware.LOCAL_CLUSTER_GROUP_KEY) ? localCusterName : null;
             return new Cluster(clusterAlias, displayClusterAlias, expr, shouldSkipOnFailure(clusterAlias));

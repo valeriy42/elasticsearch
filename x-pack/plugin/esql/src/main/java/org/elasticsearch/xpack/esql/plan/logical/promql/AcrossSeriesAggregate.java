@@ -10,9 +10,12 @@ package org.elasticsearch.xpack.esql.plan.logical.promql;
 import org.elasticsearch.xpack.esql.core.capabilities.Resolvables;
 import org.elasticsearch.xpack.esql.core.expression.Attribute;
 import org.elasticsearch.xpack.esql.core.expression.Expression;
+import org.elasticsearch.xpack.esql.core.expression.FieldAttribute;
 import org.elasticsearch.xpack.esql.core.tree.NodeInfo;
 import org.elasticsearch.xpack.esql.core.tree.Source;
+import org.elasticsearch.xpack.esql.core.type.DataType;
 import org.elasticsearch.xpack.esql.expression.promql.function.FunctionType;
+import org.elasticsearch.xpack.esql.expression.promql.function.PromqlFunctionDefinition;
 import org.elasticsearch.xpack.esql.plan.logical.LogicalPlan;
 
 import java.util.List;
@@ -48,18 +51,20 @@ public final class AcrossSeriesAggregate extends PromqlFunctionCall {
 
     private final Grouping grouping;
     private final List<Attribute> groupings;
+    private final Attribute timeseriesAttribute;
 
     public AcrossSeriesAggregate(
         Source source,
         LogicalPlan child,
-        String functionName,
+        PromqlFunctionDefinition definition,
         List<Expression> parameters,
         Grouping grouping,
         List<Attribute> groupings
     ) {
-        super(source, child, functionName, parameters);
+        super(source, child, definition, parameters);
         this.grouping = grouping;
         this.groupings = groupings;
+        this.timeseriesAttribute = FieldAttribute.timeSeriesAttribute(source);
     }
 
     public Grouping grouping() {
@@ -77,12 +82,12 @@ public final class AcrossSeriesAggregate extends PromqlFunctionCall {
 
     @Override
     protected NodeInfo<PromqlFunctionCall> info() {
-        return NodeInfo.create(this, AcrossSeriesAggregate::new, child(), functionName(), parameters(), grouping(), groupings());
+        return NodeInfo.create(this, AcrossSeriesAggregate::new, child(), definition(), parameters(), grouping(), groupings());
     }
 
     @Override
     public AcrossSeriesAggregate replaceChild(LogicalPlan newChild) {
-        return new AcrossSeriesAggregate(source(), newChild, functionName(), parameters(), grouping(), groupings());
+        return new AcrossSeriesAggregate(source(), newChild, definition(), parameters(), grouping(), groupings());
     }
 
     // @Override
@@ -99,9 +104,17 @@ public final class AcrossSeriesAggregate extends PromqlFunctionCall {
         return false;
     }
 
+    /**
+     * {@code WITHOUT} uses a dynamic {@code _timeseries} output because the
+     * concrete retained labels are not known until lowering time. {@code BY}
+     * and {@code NONE} export concrete labels or nothing.
+     */
     @Override
     public List<Attribute> output() {
-        return groupings;
+        if (grouping == Grouping.WITHOUT) {
+            return List.of(timeseriesAttribute);
+        }
+        return groupings.stream().filter(a -> a.resolved() == false || a.dataType() != DataType.NULL).toList();
     }
 
     @Override

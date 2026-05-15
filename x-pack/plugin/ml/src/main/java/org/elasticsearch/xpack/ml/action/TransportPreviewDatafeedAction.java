@@ -7,7 +7,9 @@
 package org.elasticsearch.xpack.ml.action;
 
 import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.fieldcaps.FieldCapabilities;
 import org.elasticsearch.action.fieldcaps.FieldCapabilitiesRequest;
+import org.elasticsearch.action.fieldcaps.FieldCapabilitiesResponse;
 import org.elasticsearch.action.fieldcaps.TransportFieldCapabilitiesAction;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.ContextPreservingActionListener;
@@ -23,7 +25,6 @@ import org.elasticsearch.index.mapper.DateFieldMapper;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.injection.guice.Inject;
-import org.elasticsearch.search.crossproject.CrossProjectModeDecider;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
@@ -49,6 +50,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -66,7 +68,6 @@ public class TransportPreviewDatafeedAction extends HandledTransportAction<Previ
     private final DatafeedConfigProvider datafeedConfigProvider;
     private final NamedXContentRegistry xContentRegistry;
     private final SecurityContext securityContext;
-    private final CrossProjectModeDecider crossProjectModeDecider;
 
     @Inject
     public TransportPreviewDatafeedAction(
@@ -96,7 +97,6 @@ public class TransportPreviewDatafeedAction extends HandledTransportAction<Previ
         this.securityContext = XPackSettings.SECURITY_ENABLED.get(settings)
             ? new SecurityContext(settings, threadPool.getThreadContext())
             : null;
-        this.crossProjectModeDecider = new CrossProjectModeDecider(settings);
     }
 
     @Override
@@ -157,13 +157,9 @@ public class TransportPreviewDatafeedAction extends HandledTransportAction<Previ
             // This is important because it means the datafeed search will fail if the user
             // requesting the preview doesn't have permission to search the relevant indices.
             DatafeedConfig previewDatafeedConfig = previewDatafeedBuilder.build();
-            DatafeedConfig effectiveDatafeedConfig = DatafeedConfig.withCrossProjectModeIfEnabled(
-                previewDatafeedConfig,
-                crossProjectModeDecider
-            );
             DataExtractorFactory.create(
                 new ParentTaskAssigningClient(client, parentTaskId),
-                effectiveDatafeedConfig,
+                previewDatafeedConfig,
                 extraFilters,
                 job,
                 xContentRegistry,
@@ -186,9 +182,7 @@ public class TransportPreviewDatafeedAction extends HandledTransportAction<Previ
         });
     }
 
-    /**
-     * Visible for testing
-     */
+    /** Visible for testing */
     static DatafeedConfig.Builder buildPreviewDatafeed(DatafeedConfig datafeed) {
 
         // Since we only want a preview, it's worth limiting the cost
@@ -215,17 +209,20 @@ public class TransportPreviewDatafeedAction extends HandledTransportAction<Previ
             client,
             TransportFieldCapabilitiesAction.TYPE,
             fieldCapabilitiesRequest,
-            listener.delegateFailureAndWrap(
-                (l, fieldCapsResponse) -> l.onResponse(
-                    fieldCapsResponse.getField(timeField).containsKey(DateFieldMapper.DATE_NANOS_CONTENT_TYPE)
-                )
-            )
+            listener.delegateFailureAndWrap((l, fieldCapsResponse) -> l.onResponse(timeFieldIsDateNanos(fieldCapsResponse, timeField)))
         );
     }
 
     /**
-     * Visible for testing
+     * Whether field caps report {@code timeField} as {@link DateFieldMapper#DATE_NANOS_CONTENT_TYPE} only.
+     * If the field is missing from the response, returns {@code false} (including Date and mixed mappings).
      */
+    static boolean timeFieldIsDateNanos(FieldCapabilitiesResponse fieldCapsResponse, String timeField) {
+        Map<String, FieldCapabilities> fieldTypes = fieldCapsResponse.getField(timeField);
+        return fieldTypes != null && fieldTypes.containsKey(DateFieldMapper.DATE_NANOS_CONTENT_TYPE);
+    }
+
+    /** Visible for testing */
     static void previewDatafeed(DataExtractor dataExtractor, ActionListener<PreviewDatafeedAction.Response> listener) {
         try {
             Optional<InputStream> inputStream = dataExtractor.next().data();

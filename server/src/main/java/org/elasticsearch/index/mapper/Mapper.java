@@ -116,6 +116,20 @@ public abstract class Mapper implements ToXContentFragment, Iterable<Mapper> {
         /** Returns a newly built mapper. */
         public abstract Mapper build(MapperBuilderContext context);
 
+        /**
+         * Returns the total number of fields that this builder will create.
+         * Used for field budget accounting during merges.
+         */
+        int getTotalFieldsCount() {
+            return 1;
+        }
+
+        /**
+         * Merges an incoming builder into this builder. Returns the merged builder, which may be
+         * a different instance if a type conversion is needed (e.g., ObjectMapper -> PassThroughObjectMapper).
+         */
+        public abstract Mapper.Builder mergeWith(Mapper.Builder incoming, MapperMergeContext mergeContext);
+
         void setLeafName(String leafName) {
             this.leafName = leafName;
         }
@@ -207,7 +221,7 @@ public abstract class Mapper implements ToXContentFragment, Iterable<Mapper> {
         }
 
         private static boolean diffIgnoreAboveDefaultForLogs(final IndexMode indexMode, final IndexVersion indexCreatedVersion) {
-            return indexMode == IndexMode.LOGSDB
+            return (indexMode == IndexMode.LOGSDB || indexMode == IndexMode.LOGSDB_COLUMNAR)
                 && (indexCreatedVersion != null && indexCreatedVersion.onOrAfter(IndexVersions.ENABLE_IGNORE_ABOVE_LOGSDB));
         }
 
@@ -237,12 +251,6 @@ public abstract class Mapper implements ToXContentFragment, Iterable<Mapper> {
      * Returns a name representing the type of this mapper.
      */
     public abstract String typeName();
-
-    /**
-     * Return the merge of {@code mergeWith} into this.
-     * Both {@code this} and {@code mergeWith} will be left unmodified.
-     */
-    public abstract Mapper merge(Mapper mergeWith, MapperMergeContext mapperMergeContext);
 
     /**
      * Validate any cross-field references made by this mapper

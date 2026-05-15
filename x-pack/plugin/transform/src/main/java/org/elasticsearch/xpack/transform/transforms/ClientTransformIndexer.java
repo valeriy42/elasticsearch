@@ -31,6 +31,7 @@ import org.elasticsearch.action.support.master.AcknowledgedRequest;
 import org.elasticsearch.client.internal.ParentTaskAssigningClient;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
+import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.logging.LoggerMessageFormat;
@@ -66,7 +67,6 @@ import org.elasticsearch.xpack.core.transform.utils.ExceptionsHelper;
 import org.elasticsearch.xpack.transform.TransformExtension;
 import org.elasticsearch.xpack.transform.TransformServices;
 import org.elasticsearch.xpack.transform.checkpoint.CheckpointProvider;
-import org.elasticsearch.xpack.transform.checkpoint.CrossProjectHeadersHelper;
 import org.elasticsearch.xpack.transform.persistence.SeqNoPrimaryTermAndIndex;
 import org.elasticsearch.xpack.transform.persistence.TransformIndex;
 import org.elasticsearch.xpack.transform.transforms.pivot.SchemaUtil;
@@ -80,6 +80,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static org.elasticsearch.core.Strings.format;
 
@@ -92,6 +93,8 @@ class ClientTransformIndexer extends TransformIndexer {
     private final ClusterService clusterService;
     private final IndexNameExpressionResolver indexNameExpressionResolver;
     private final Settings destIndexSettings;
+    private final boolean crossProjectEnabled;
+    private final Function<ProjectId, Boolean> hasLinkedProjects;
     private final AtomicBoolean oldStatsCleanedUp = new AtomicBoolean(false);
 
     private final AtomicReference<SeqNoPrimaryTermAndIndex> seqNoPrimaryTermAndIndexHolder;
@@ -141,6 +144,9 @@ class ClientTransformIndexer extends TransformIndexer {
         context.setShouldStopAtCheckpoint(shouldStopAtCheckpoint);
 
         disablePit = TransformEffectiveSettings.isPitDisabled(transformConfig.getSettings());
+        crossProjectEnabled = transformServices.crossProjectModeDecider().crossProjectEnabled()
+            && TransformConfig.TRANSFORM_CROSS_PROJECT.isEnabled();
+        this.hasLinkedProjects = transformServices.hasLinkedProjects();
     }
 
     @Override
@@ -299,20 +305,13 @@ class ClientTransformIndexer extends TransformIndexer {
 
     @Override
     void doGetInitialProgress(SearchRequest request, ActionListener<SearchResponse> responseListener) {
-        CrossProjectHeadersHelper.executeWithCrossProjectHeaders(
+        ClientHelper.executeWithHeadersAsync(
+            transformConfig.getHeaders(),
+            ClientHelper.TRANSFORM_ORIGIN,
             client,
-            transformConfig,
-            ActionListener.wrap(
-                r -> ClientHelper.executeWithHeadersAsync(
-                    transformConfig.getHeaders(),
-                    ClientHelper.TRANSFORM_ORIGIN,
-                    client,
-                    TransportSearchAction.TYPE,
-                    request,
-                    responseListener
-                ),
-                responseListener::onFailure
-            )
+            TransportSearchAction.TYPE,
+            request,
+            responseListener
         );
     }
 
@@ -336,24 +335,13 @@ class ClientTransformIndexer extends TransformIndexer {
     }
 
     void validate(ActionListener<ValidateTransformAction.Response> listener) {
-        ClientHelper.executeWithHeadersAsync(
-            transformConfig.getHeaders(),
-            ClientHelper.TRANSFORM_ORIGIN,
+        ClientHelper.executeAsyncWithOrigin(
             client,
+            ClientHelper.TRANSFORM_ORIGIN,
             ValidateTransformAction.INSTANCE,
             new ValidateTransformAction.Request(transformConfig, false, AcknowledgedRequest.DEFAULT_ACK_TIMEOUT),
             listener
         );
-    }
-
-    @Override
-    void prepareCrossProjectSearch(ActionListener<Void> listener) {
-        // TODO would be conditional IRL
-        // Need to call resolve index API (in addition?)
-        CrossProjectHeadersHelper.executeWithCrossProjectHeaders(client, transformConfig, ActionListener.wrap(r -> {
-            logger.info("[{}] prepared cross-project search.", getJobId());
-            listener.onResponse(null);
-        }, listener::onFailure));
     }
 
     /**
@@ -505,6 +493,11 @@ class ClientTransformIndexer extends TransformIndexer {
         closePointInTime(super::onStop);
     }
 
+    @Override
+    protected void onAbort() {
+        closePointInTime(super::onAbort);
+    }
+
     // visible for testing
     void closePointInTime(Runnable runAfter) {
         // we shouldn't need to do this, because a transform is only ever running on one thread anyway, but now that we're waiting for
@@ -558,7 +551,7 @@ class ClientTransformIndexer extends TransformIndexer {
         if (disablePit
             || searchRequest.indices().length == 0
             || transformConfig.getSource().requiresRemoteCluster()
-            || searchRequest.indicesOptions().resolveCrossProjectIndexExpression()) {
+            || (crossProjectEnabled && hasLinkedProjects.apply(context.projectId()))) {
             listener.onResponse(namedSearchRequest);
             return;
         }
@@ -572,8 +565,11 @@ class ClientTransformIndexer extends TransformIndexer {
 
         // no pit, create a new one
         OpenPointInTimeRequest pitRequest = new OpenPointInTimeRequest(searchRequest.indices()).keepAlive(PIT_KEEP_ALIVE);
-        // use index filter for better performance
-        pitRequest.indexFilter(transformConfig.getSource().getQueryConfig().getQuery());
+        // Only use index filter when there are no runtime mappings, because OpenPointInTimeRequest
+        // does not support runtime_mappings and the query may reference runtime fields
+        if (transformConfig.getSource().getRuntimeMappings().isEmpty()) {
+            pitRequest.indexFilter(transformConfig.getSource().getQueryConfig().getQuery());
+        }
 
         ClientHelper.executeWithHeadersAsync(
             transformConfig.getHeaders(),
@@ -626,14 +622,6 @@ class ClientTransformIndexer extends TransformIndexer {
     }
 
     void doSearch(Tuple<String, SearchRequest> namedSearchRequest, ActionListener<SearchResponse> listener) {
-        CrossProjectHeadersHelper.executeWithCrossProjectHeaders(
-            client,
-            transformConfig,
-            ActionListener.wrap(v -> doSearchInternal(namedSearchRequest, listener), listener::onFailure)
-        );
-    }
-
-    private void doSearchInternal(Tuple<String, SearchRequest> namedSearchRequest, ActionListener<SearchResponse> listener) {
         String name = namedSearchRequest.v1();
         SearchRequest originalRequest = namedSearchRequest.v2();
         // We want to treat a request to search 0 indices as a request to do nothing, not a request to search all indices

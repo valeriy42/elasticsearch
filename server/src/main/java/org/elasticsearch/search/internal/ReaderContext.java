@@ -53,7 +53,6 @@ public class ReaderContext implements Releasable {
     private final long startTimeInNano = System.nanoTime();
 
     private Map<String, Object> context;
-    private boolean isForcedExpired = false;
 
     @SuppressWarnings("this-escape")
     public ReaderContext(
@@ -78,7 +77,7 @@ public class ReaderContext implements Releasable {
         indexShard.getSearchOperationListener().validateReaderContext(this, request);
     }
 
-    private long nowInMillis() {
+    protected final long nowInMillis() {
         return indexShard.getThreadPool().relativeTimeInMillis();
     }
 
@@ -136,22 +135,20 @@ public class ReaderContext implements Releasable {
     }
 
     public boolean isExpired() {
-        if (refCounted.refCount() > 1) {
+        if (hasOutstandingRefs()) {
             return false; // being used by markAsUsed
         }
-        if (isForcedExpired) {
-            return true;
-        }
+
         final long elapsed = nowInMillis() - lastAccessTime.get();
         return elapsed > keepAlive.get();
     }
 
-    public boolean isForcedExpired() {
-        return isForcedExpired;
+    protected final boolean hasOutstandingRefs() {
+        return refCounted.refCount() > 1;
     }
 
-    public void forceExpired() {
-        isForcedExpired = true;
+    public boolean isRelocating() {
+        return false;
     }
 
     // BWC
