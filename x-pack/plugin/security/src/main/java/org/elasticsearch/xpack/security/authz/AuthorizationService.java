@@ -507,8 +507,9 @@ public class AuthorizationService {
             }
 
             targetProjectListener.addListener(ActionListener.wrap(authorizedProjects -> {
+                final TargetProjects targetProjects = maybeSetResolvedTargetProjects(request, authorizedProjects, projectMetadata);
                 final AsyncSupplier<ResolvedIndices> resolvedIndicesAsyncSupplier = makeResolvedIndicesAsyncSupplier(
-                    authorizedProjects,
+                    targetProjects,
                     requestInfo,
                     requestId,
                     request,
@@ -549,7 +550,7 @@ public class AuthorizationService {
     }
 
     private AsyncSupplier<ResolvedIndices> makeResolvedIndicesAsyncSupplier(
-        TargetProjects authorizedProjects,
+        TargetProjects targetProjects,
         RequestInfo requestInfo,
         String requestId,
         TransportRequest request,
@@ -566,7 +567,6 @@ public class AuthorizationService {
                 return SubscribableListener.newSucceeded(resolvedIndices);
             }
 
-            final TargetProjects targetProjects = maybeSetResolvedTargetProjects(request, authorizedProjects, projectMetadata);
             final ResolvedIndices resolvedIndices = indicesAndAliasesResolver.tryResolveWithoutWildcards(action, request, targetProjects);
             if (resolvedIndices != null) {
                 return SubscribableListener.newSucceeded(resolvedIndices);
