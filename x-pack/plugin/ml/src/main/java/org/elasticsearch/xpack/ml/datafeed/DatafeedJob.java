@@ -63,6 +63,9 @@ class DatafeedJob {
     private final AnomalyDetectionAuditor auditor;
     private final AnnotationPersister annotationPersister;
     private final String jobId;
+    private final String datafeedId;
+    @Nullable
+    private final String cloudCredentialId;
     private final DataDescription dataDescription;
     private final long frequencyMs;
     private final long queryDelayMs;
@@ -88,6 +91,8 @@ class DatafeedJob {
 
     DatafeedJob(
         String jobId,
+        String datafeedId,
+        @Nullable String cloudCredentialId,
         DataDescription dataDescription,
         long frequencyMs,
         long queryDelayMs,
@@ -106,6 +111,8 @@ class DatafeedJob {
         CrossClusterSearchStats crossClusterSearchStats
     ) {
         this.jobId = jobId;
+        this.datafeedId = datafeedId;
+        this.cloudCredentialId = cloudCredentialId;
         this.dataDescription = Objects.requireNonNull(dataDescription);
         this.frequencyMs = frequencyMs;
         this.queryDelayMs = queryDelayMs;
@@ -392,6 +399,7 @@ class DatafeedJob {
                         );
                     }
                 } catch (Exception e) {
+                    DataExtractorUtils.checkForCloudCredentialSearchFailure(e, jobId, datafeedId, cloudCredentialId, auditor);
                     LOGGER.warn(() -> "[" + jobId + "] error while extracting data", e);
                     // When extraction problems are encountered, we do not want to advance time.
                     // Instead, it is preferable to retry the given interval next time an extraction

@@ -1024,6 +1024,8 @@ public class DatafeedJobTests extends ESTestCase {
         Supplier<Long> currentTimeSupplier = () -> currentTime;
         return new DatafeedJob(
             jobId,
+            "datafeed-" + jobId,
+            null,
             dataDescription.build(),
             frequencyMs,
             queryDelayMs,
