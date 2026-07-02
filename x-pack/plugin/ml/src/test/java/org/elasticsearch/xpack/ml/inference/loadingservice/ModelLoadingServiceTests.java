@@ -522,33 +522,34 @@ public class ModelLoadingServiceTests extends ESTestCase {
             mock(XPackLicenseState.class)
         );
 
-        MockLog mockLog = MockLog.capture(ModelLoadingService.class);
-        mockLog.addExpectation(
-            new MockLog.UnseenEventExpectation(
-                "circuit breaker load failure",
-                ModelLoadingService.class.getCanonicalName(),
-                Level.WARN,
-                "Model ["
-                    + modelId
-                    + "] could not be loaded because the inference circuit breaker limit was exceeded. "
-                    + "The ingest node will retry when memory becomes available. If this persists, the node may need to be resized."
-            )
-        );
+        try (var mockLog = MockLog.capture(ModelLoadingService.class)) {
+            mockLog.addExpectation(
+                new MockLog.SeenEventExpectation(
+                    "circuit breaker load failure",
+                    ModelLoadingService.class.getCanonicalName(),
+                    Level.WARN,
+                    "Model ["
+                        + modelId
+                        + "] could not be loaded because the inference circuit breaker limit was exceeded. "
+                        + "The ingest node will retry when memory becomes available. If this persists, the node may need to be resized."
+                )
+            );
 
-        modelLoadingService.addModelLoadedListener(modelId, ActionListener.wrap(r -> fail("expected circuit breaker failure"), e -> {
-            assertThat(e, instanceOf(CircuitBreakingException.class));
-            assertThat(((CircuitBreakingException) e).status(), equalTo(RestStatus.TOO_MANY_REQUESTS));
-        }));
-        modelLoadingService.clusterChanged(ingestChangedEvent(modelId));
-        assertBusy(
-            () -> verify(trainedModelProvider, times(1)).getTrainedModel(
-                eq(modelId),
-                eq(GetTrainedModelsAction.Includes.empty()),
-                any(),
-                any()
-            )
-        );
-        mockLog.assertAllExpectationsMatched();
+            modelLoadingService.addModelLoadedListener(modelId, ActionListener.wrap(r -> fail("expected circuit breaker failure"), e -> {
+                assertThat(e, instanceOf(CircuitBreakingException.class));
+                assertThat(((CircuitBreakingException) e).status(), equalTo(RestStatus.TOO_MANY_REQUESTS));
+            }));
+            modelLoadingService.clusterChanged(ingestChangedEvent(modelId));
+            assertBusy(
+                () -> verify(trainedModelProvider, times(1)).getTrainedModel(
+                    eq(modelId),
+                    eq(GetTrainedModelsAction.Includes.empty()),
+                    any(),
+                    any()
+                )
+            );
+            mockLog.awaitAllExpectationsMatched();
+        }
     }
 
     public void testExpiredModelsAreEvictedBeforeLoading() throws Exception {
