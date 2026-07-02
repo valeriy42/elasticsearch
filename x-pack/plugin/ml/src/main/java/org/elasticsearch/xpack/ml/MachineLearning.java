@@ -187,6 +187,7 @@ import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsTaskState;
 import org.elasticsearch.xpack.core.ml.dataframe.analyses.MlDataFrameAnalysisNamedXContentProvider;
 import org.elasticsearch.xpack.core.ml.dataframe.evaluation.MlEvaluationNamedXContentProvider;
 import org.elasticsearch.xpack.core.ml.dataframe.stats.AnalysisStatsNamedWriteablesProvider;
+import org.elasticsearch.xpack.core.ml.inference.IngestModelMemoryProvider;
 import org.elasticsearch.xpack.core.ml.inference.MlInferenceNamedXContentProvider;
 import org.elasticsearch.xpack.core.ml.inference.ModelAliasMetadata;
 import org.elasticsearch.xpack.core.ml.inference.TrainedModelCacheMetadata;
@@ -331,6 +332,7 @@ import org.elasticsearch.xpack.ml.inference.assignment.TrainedModelAssignmentClu
 import org.elasticsearch.xpack.ml.inference.assignment.TrainedModelAssignmentService;
 import org.elasticsearch.xpack.ml.inference.deployment.DeploymentManager;
 import org.elasticsearch.xpack.ml.inference.ingest.InferenceProcessor;
+import org.elasticsearch.xpack.ml.inference.ingest.IngestModelMemoryService;
 import org.elasticsearch.xpack.ml.inference.loadingservice.ModelLoadingService;
 import org.elasticsearch.xpack.ml.inference.ltr.LearningToRankRescorerBuilder;
 import org.elasticsearch.xpack.ml.inference.ltr.LearningToRankService;
@@ -1281,6 +1283,14 @@ public class MachineLearning extends Plugin
         );
         this.modelLoadingService.set(modelLoadingService);
 
+        final IngestModelMemoryService ingestModelMemoryService = new IngestModelMemoryService(
+            clusterService,
+            trainedModelProvider,
+            threadPool
+        );
+        clusterService.addListener(ingestModelMemoryService);
+        IngestModelMemoryProvider.setInstance(ingestModelMemoryService);
+
         this.learningToRankService.set(
             new LearningToRankService(modelLoadingService, trainedModelProvider, services.scriptService(), services.xContentRegistry())
         );
@@ -1485,6 +1495,7 @@ public class MachineLearning extends Plugin
             dataFrameAnalyticsConfigProvider,
             nativeStorageProvider,
             modelLoadingService,
+            ingestModelMemoryService,
             trainedModelCacheMetadataService,
             trainedModelProvider,
             trainedModelAssignmentService,
