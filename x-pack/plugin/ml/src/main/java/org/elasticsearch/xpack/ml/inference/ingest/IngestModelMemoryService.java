@@ -196,6 +196,12 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     }
 
     private void propagateModelSize(String modelId, OptionalLong size) {
+        boolean stillReferenced = modelSizesByProject.values().stream().anyMatch(map -> map.containsKey(modelId));
+        if (stillReferenced == false) {
+            globalModelSizes.remove(modelId);
+            fetchScheduledModelIds.remove(modelId);
+            return;
+        }
         globalModelSizes.put(modelId, size);
         for (ConcurrentHashMap<String, OptionalLong> perProject : modelSizesByProject.values()) {
             if (perProject.containsKey(modelId)) {

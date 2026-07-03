@@ -46,6 +46,8 @@ import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -103,6 +105,29 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
 
         assertThat(service.getRequiredHeapBytes().heapBytes(), equalTo(0L));
         assertThat(service.getRequiredHeapBytes().isExact(), is(true));
+    }
+
+    public void testLateModelFetchAfterPipelineRemovalDoesNotRestoreHeap() throws Exception {
+        TrainedModelConfig trainedModelConfig = mock(TrainedModelConfig.class);
+        when(trainedModelConfig.getModelSize()).thenReturn(100L);
+        java.util.concurrent.atomic.AtomicReference<ActionListener<TrainedModelConfig>> pendingListener =
+            new java.util.concurrent.atomic.AtomicReference<>();
+        doAnswer(invocation -> {
+            pendingListener.set(invocation.getArgument(3));
+            return null;
+        }).when(trainedModelProvider).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+
+        ClusterState withModel = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
+        service.clusterChanged(new ClusterChangedEvent("test", withModel, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
+
+        ClusterState withoutModel = masterClusterState(withIngestModels(Map.of()));
+        service.clusterChanged(new ClusterChangedEvent("test", withoutModel, withModel));
+
+        assertThat(service.getRequiredHeapBytes().heapBytes(), equalTo(0L));
+        assertThat(pendingListener.get(), notNullValue());
+        pendingListener.get().onResponse(trainedModelConfig);
+        assertThat(service.getRequiredHeapBytes().heapBytes(), equalTo(0L));
+        assertThat(service.getGlobalModelSizeForTests("model-a"), nullValue());
     }
 
     public void testProjectRemovalDropsTrackedModelsWithoutGlobalPipelineWalk() throws Exception {
