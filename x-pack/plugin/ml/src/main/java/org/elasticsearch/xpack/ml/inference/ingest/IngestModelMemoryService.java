@@ -147,6 +147,15 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
             globalModelSizes.putIfAbsent(modelId, OptionalLong.empty());
             scheduleFetchIfNeeded(modelId);
         }
+        if (added.isEmpty() == false || removed.isEmpty() == false) {
+            logger.info(
+                "RFC 0007 ingest model references changed for project [{}]: added={}, removed={}, tracked_models={}",
+                projectId,
+                added,
+                removed,
+                perProject.size()
+            );
+        }
     }
 
     private void reconcileGlobalAfterProjectDrop(String modelId) {
@@ -193,6 +202,12 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
                 perProject.put(modelId, size);
             }
         }
+        logger.info(
+            "RFC 0007 ingest model heap size resolved for model [{}]: size_bytes={}, present={}",
+            modelId,
+            size.isPresent() ? size.getAsLong() : 0L,
+            size.isPresent()
+        );
     }
 
     // Visible for tests
