@@ -237,10 +237,17 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
 
         putJob(job);
         openJob(job.getId());
-        createDataWithLotsOfClientIps(bucketSpan, job);
+        long numClientIps = createDataWithLotsOfClientIps(bucketSpan, job);
+
+        // Force the forecast to spill its per-partition models to disk (the behaviour this test targets) via an
+        // explicit low max_model_memory, rather than relying on a huge number of partitions to organically exceed
+        // the native default. A smaller partition count keeps the single-threaded native model-clone/serialize
+        // step (which runs before the forecast leaves the "scheduled" state) fast and CI-disk-I/O-tolerant.
+        // See https://github.com/elastic/elasticsearch/issues/148606.
+        Long lowMaxModelMemory = ByteSizeValue.ofMb(1).getBytes();
 
         try {
-            String forecastId = forecast(job.getId(), TimeValue.timeValueHours(1), null);
+            String forecastId = forecast(job.getId(), TimeValue.timeValueHours(1), null, lowMaxModelMemory);
 
             waitForecastToFinish(job.getId(), forecastId);
         } catch (ElasticsearchStatusException e) {
@@ -262,12 +269,12 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
         ForecastRequestStats forecastRequestStats = forecastStats.get(0);
         List<Forecast> forecasts = getForecasts(job.getId(), forecastRequestStats);
 
-        assertThat(forecastRequestStats.getRecordCount(), equalTo(8000L));
-        assertThat(forecasts.size(), equalTo(8000));
+        assertThat(forecastRequestStats.getRecordCount(), equalTo(numClientIps));
+        assertThat(forecasts.size(), equalTo((int) numClientIps));
 
         // run forecast a 2nd time
         try {
-            String forecastId = forecast(job.getId(), TimeValue.timeValueHours(1), null);
+            String forecastId = forecast(job.getId(), TimeValue.timeValueHours(1), null, lowMaxModelMemory);
 
             waitForecastToFinish(job.getId(), forecastId);
         } catch (ElasticsearchStatusException e) {
@@ -288,8 +295,8 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
         for (ForecastRequestStats stats : forecastStats) {
             forecasts = getForecasts(job.getId(), stats);
 
-            assertThat(forecastRequestStats.getRecordCount(), equalTo(8000L));
-            assertThat(forecasts.size(), equalTo(8000));
+            assertThat(forecastRequestStats.getRecordCount(), equalTo(numClientIps));
+            assertThat(forecasts.size(), equalTo((int) numClientIps));
         }
 
     }
@@ -612,15 +619,22 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
         assertThat(forecasts.size(), equalTo(1));
     }
 
-    private void createDataWithLotsOfClientIps(TimeValue bucketSpan, Job.Builder job) {
+    // Grid dimensions for the distinct "clientIP" partitions created by createDataWithLotsOfClientIps.
+    // Kept small deliberately: the number of partitions is no longer what forces the forecast's disk-overflow
+    // code path (that's now done via an explicit low max_model_memory on the forecast request), so a large
+    // partition count would only add native-side serialization time without exercising anything extra.
+    // See https://github.com/elastic/elasticsearch/issues/148606.
+    private static final int CLIENT_IP_GRID_SIZE = 20;
+
+    private long createDataWithLotsOfClientIps(TimeValue bucketSpan, Job.Builder job) {
         long now = Instant.now().getEpochSecond();
         long timestamp = now - 15 * bucketSpan.seconds();
 
         List<String> data = new ArrayList<>();
         for (int h = 0; h < 15; h++) {
             double value = 10.0 + h;
-            for (int i = 1; i < 101; i++) {
-                for (int j = 1; j < 81; j++) {
+            for (int i = 1; i <= CLIENT_IP_GRID_SIZE; i++) {
+                for (int j = 1; j <= CLIENT_IP_GRID_SIZE; j++) {
                     String json = Strings.format("""
                         {"time": %s, "value": %f, "clientIP": "192.168.%d.%d"}
                         """, timestamp, value, i, j);
@@ -632,6 +646,7 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
 
         postData(job.getId(), data.stream().collect(Collectors.joining()));
         flushJob(job.getId(), false);
+        return (long) CLIENT_IP_GRID_SIZE * CLIENT_IP_GRID_SIZE;
     }
 
     private static Map<String, Object> createRecord(long timestamp, double value) {
