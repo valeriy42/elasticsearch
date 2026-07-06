@@ -11,7 +11,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Extension point for reporting JVM heap bytes required to load DFA models referenced by ingest pipelines.
+ * Extension point for reporting JVM heap bytes required to load trained models referenced by ingest pipelines.
  * Implemented by the ML plugin; consumed by serverless index-tier memory metrics without a compile dependency on ML.
  */
 public interface IngestModelMemoryProvider {
@@ -30,7 +30,7 @@ public interface IngestModelMemoryProvider {
     }
 
     /**
-     * Aggregate JVM heap bytes for DFA models referenced by ingest pipelines; no heap-to-container conversion.
+     * Aggregate JVM heap bytes for trained models referenced by ingest pipelines; no heap-to-container conversion.
      */
     HeapRequirement getRequiredHeapBytes();
 

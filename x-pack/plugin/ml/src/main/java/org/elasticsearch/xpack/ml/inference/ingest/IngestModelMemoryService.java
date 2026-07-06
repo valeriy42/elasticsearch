@@ -15,7 +15,6 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.ClusterStateListener;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.cluster.metadata.ProjectMetadata;
-import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.util.set.Sets;
 import org.elasticsearch.ingest.IngestMetadata;
 import org.elasticsearch.threadpool.ThreadPool;
@@ -30,7 +29,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Master-only service that tracks JVM heap bytes required to load DFA models referenced by ingest pipelines.
+ * Master-only service that tracks JVM heap bytes required to load trained models referenced by ingest pipelines.
  */
 public class IngestModelMemoryService implements ClusterStateListener, IngestModelMemoryProvider {
 
@@ -39,11 +38,11 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     private final TrainedModelProvider trainedModelProvider;
     private final ThreadPool threadPool;
 
-    private final ConcurrentHashMap<ProjectId, ConcurrentHashMap<String, OptionalLong>> modelSizesByProject = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<ProjectId, Set<String>> referencedModelsByProject = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, OptionalLong> globalModelSizes = new ConcurrentHashMap<>();
     private final Set<String> fetchScheduledModelIds = ConcurrentHashMap.newKeySet();
 
-    public IngestModelMemoryService(ClusterService clusterService, TrainedModelProvider trainedModelProvider, ThreadPool threadPool) {
+    public IngestModelMemoryService(TrainedModelProvider trainedModelProvider, ThreadPool threadPool) {
         this.trainedModelProvider = trainedModelProvider;
         this.threadPool = threadPool;
     }
@@ -78,9 +77,9 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
 
     private void handleRemovedProjects(ClusterChangedEvent event) {
         for (ProjectId removed : event.projectDelta().removed()) {
-            ConcurrentHashMap<String, OptionalLong> removedMap = modelSizesByProject.remove(removed);
-            if (removedMap != null) {
-                removedMap.keySet().forEach(this::reconcileGlobalAfterProjectDrop);
+            Set<String> removedModels = referencedModelsByProject.remove(removed);
+            if (removedModels != null) {
+                removedModels.forEach(this::reconcileGlobalAfterProjectDrop);
             }
         }
     }
@@ -121,7 +120,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     }
 
     private void clearAllState() {
-        modelSizesByProject.clear();
+        referencedModelsByProject.clear();
         globalModelSizes.clear();
         fetchScheduledModelIds.clear();
     }
@@ -134,8 +133,8 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
 
     private void refreshProjectFromFullScan(ProjectId projectId, ClusterState state) {
         Set<String> nowReferenced = IngestPipelineModelReferences.resolveReferencedModelsForProject(state, projectId);
-        ConcurrentHashMap<String, OptionalLong> perProject = modelSizesByProject.computeIfAbsent(projectId, k -> new ConcurrentHashMap<>());
-        Set<String> current = new HashSet<>(perProject.keySet());
+        Set<String> perProject = referencedModelsByProject.computeIfAbsent(projectId, k -> ConcurrentHashMap.newKeySet());
+        Set<String> current = new HashSet<>(perProject);
         Set<String> added = Sets.difference(nowReferenced, current);
         Set<String> removed = Sets.difference(current, nowReferenced);
         removed.forEach(modelId -> {
@@ -143,14 +142,14 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
             reconcileGlobalAfterProjectDrop(modelId);
         });
         for (String modelId : added) {
-            perProject.put(modelId, OptionalLong.empty());
+            perProject.add(modelId);
             globalModelSizes.putIfAbsent(modelId, OptionalLong.empty());
             scheduleFetchIfNeeded(modelId);
         }
     }
 
     private void reconcileGlobalAfterProjectDrop(String modelId) {
-        boolean stillReferenced = modelSizesByProject.values().stream().anyMatch(map -> map.containsKey(modelId));
+        boolean stillReferenced = referencedModelsByProject.values().stream().anyMatch(set -> set.contains(modelId));
         if (stillReferenced == false) {
             globalModelSizes.remove(modelId);
             fetchScheduledModelIds.remove(modelId);
@@ -187,18 +186,13 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     }
 
     private void propagateModelSize(String modelId, OptionalLong size) {
-        boolean stillReferenced = modelSizesByProject.values().stream().anyMatch(map -> map.containsKey(modelId));
+        boolean stillReferenced = referencedModelsByProject.values().stream().anyMatch(set -> set.contains(modelId));
         if (stillReferenced == false) {
             globalModelSizes.remove(modelId);
             fetchScheduledModelIds.remove(modelId);
             return;
         }
         globalModelSizes.put(modelId, size);
-        for (ConcurrentHashMap<String, OptionalLong> perProject : modelSizesByProject.values()) {
-            if (perProject.containsKey(modelId)) {
-                perProject.put(modelId, size);
-            }
-        }
     }
 
     // Visible for tests
@@ -207,7 +201,6 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     }
 
     boolean isTrackingModelForProjectForTests(ProjectId projectId, String modelId) {
-        ConcurrentHashMap<String, OptionalLong> perProject = modelSizesByProject.get(projectId);
-        return perProject != null && perProject.containsKey(modelId);
+        return referencedModelsByProject.getOrDefault(projectId, Set.of()).contains(modelId);
     }
 }

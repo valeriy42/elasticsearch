@@ -1283,11 +1283,7 @@ public class MachineLearning extends Plugin
         );
         this.modelLoadingService.set(modelLoadingService);
 
-        final IngestModelMemoryService ingestModelMemoryService = new IngestModelMemoryService(
-            clusterService,
-            trainedModelProvider,
-            threadPool
-        );
+        final IngestModelMemoryService ingestModelMemoryService = new IngestModelMemoryService(trainedModelProvider, threadPool);
         clusterService.addListener(ingestModelMemoryService);
         IngestModelMemoryProvider.setInstance(ingestModelMemoryService);
 

@@ -17,7 +17,6 @@ import org.elasticsearch.cluster.metadata.ProjectMetadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodeUtils;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
-import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.util.Maps;
 import org.elasticsearch.core.Tuple;
@@ -63,15 +62,13 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
 
     private TrainedModelProvider trainedModelProvider;
     private ThreadPool threadPool;
-    private ClusterService clusterService;
     private IngestModelMemoryService service;
 
     @Before
     public void setUpComponents() {
         trainedModelProvider = mock(TrainedModelProvider.class);
         threadPool = new TestThreadPool("IngestModelMemoryServiceTests");
-        clusterService = mock(ClusterService.class);
-        service = new IngestModelMemoryService(clusterService, trainedModelProvider, threadPool);
+        service = new IngestModelMemoryService(trainedModelProvider, threadPool);
     }
 
     @After

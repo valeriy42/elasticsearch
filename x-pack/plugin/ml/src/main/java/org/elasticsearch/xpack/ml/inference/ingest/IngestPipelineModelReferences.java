@@ -26,6 +26,12 @@ public final class IngestPipelineModelReferences {
 
     private IngestPipelineModelReferences() {}
 
+    /**
+     * Resolve the model identifiers referenced by ingest pipelines for a given project.
+     * @param state the cluster state
+     * @param projectId the project ID
+     * @return the set of model identifiers
+     */
     public static Set<String> resolveReferencedModelsForProject(ClusterState state, ProjectId projectId) {
         IngestMetadata ingestMetadata = state.metadata().getProject(projectId).custom(IngestMetadata.TYPE);
         Set<String> referencedKeys = collectReferencedModelKeys(ingestMetadata);
@@ -41,6 +47,11 @@ public final class IngestPipelineModelReferences {
         return resolved;
     }
 
+    /**
+     * Collect the model identifiers referenced by ingest pipelines from a given ingest metadata.
+     * @param ingestMetadata the ingest metadata
+     * @return the set of model identifiers
+     */
     public static Set<String> collectReferencedModelKeys(IngestMetadata ingestMetadata) {
         Set<String> referencedModelKeys = new HashSet<>();
         if (ingestMetadata == null) {
