@@ -149,7 +149,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         }
         if (added.isEmpty() == false || removed.isEmpty() == false) {
             logger.info(
-                "RFC 0007 ingest model references changed for project [{}]: added={}, removed={}, tracked_models={}",
+                "Ingest model references changed for project [{}]: added={}, removed={}, tracked_models={}",
                 projectId,
                 added,
                 removed,
@@ -209,7 +209,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
             }
         }
         logger.info(
-            "RFC 0007 ingest model heap size resolved for model [{}]: size_bytes={}, present={}",
+            "Ingest model heap size resolved for model [{}]: size_bytes={}, present={}",
             modelId,
             size.isPresent() ? size.getAsLong() : 0L,
             size.isPresent()
