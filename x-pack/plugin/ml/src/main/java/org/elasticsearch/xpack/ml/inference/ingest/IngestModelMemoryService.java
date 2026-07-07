@@ -16,17 +16,20 @@ import org.elasticsearch.cluster.ClusterStateListener;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.cluster.metadata.ProjectMetadata;
 import org.elasticsearch.common.util.set.Sets;
+import org.elasticsearch.gateway.GatewayService;
 import org.elasticsearch.ingest.IngestMetadata;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.core.ml.action.GetTrainedModelsAction;
 import org.elasticsearch.xpack.core.ml.inference.IngestModelMemoryProvider;
 import org.elasticsearch.xpack.core.ml.inference.ModelAliasMetadata;
+import org.elasticsearch.xpack.ml.MachineLearning;
 import org.elasticsearch.xpack.ml.inference.persistence.TrainedModelProvider;
 
 import java.util.HashSet;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Master-only service that tracks JVM heap bytes required to load trained models referenced by ingest pipelines.
@@ -41,6 +44,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     private final ConcurrentHashMap<ProjectId, Set<String>> referencedModelsByProject = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, OptionalLong> globalModelSizes = new ConcurrentHashMap<>();
     private final Set<String> fetchScheduledModelIds = ConcurrentHashMap.newKeySet();
+    private final AtomicReference<HeapRequirement> cachedRequirement = new AtomicReference<>(new HeapRequirement(0L, true));
 
     public IngestModelMemoryService(TrainedModelProvider trainedModelProvider, ThreadPool threadPool) {
         this.trainedModelProvider = trainedModelProvider;
@@ -51,6 +55,10 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     public void clusterChanged(ClusterChangedEvent event) {
         if (event.state().nodes().isLocalNodeElectedMaster() == false) {
             clearAllState();
+            return;
+        }
+
+        if (event.state().blocks().hasGlobalBlock(GatewayService.STATE_NOT_RECOVERED_BLOCK)) {
             return;
         }
 
@@ -107,6 +115,17 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
 
     @Override
     public HeapRequirement getRequiredHeapBytes() {
+        return cachedRequirement.get();
+    }
+
+    private void clearAllState() {
+        referencedModelsByProject.clear();
+        globalModelSizes.clear();
+        fetchScheduledModelIds.clear();
+        recomputeHeapRequirement();
+    }
+
+    private void recomputeHeapRequirement() {
         long total = 0L;
         boolean exact = true;
         for (OptionalLong size : globalModelSizes.values()) {
@@ -116,13 +135,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
                 exact = false;
             }
         }
-        return new HeapRequirement(total, exact);
-    }
-
-    private void clearAllState() {
-        referencedModelsByProject.clear();
-        globalModelSizes.clear();
-        fetchScheduledModelIds.clear();
+        cachedRequirement.set(new HeapRequirement(total, exact));
     }
 
     private boolean ingestOrAliasRelevant(ClusterChangedEvent event, ProjectId projectId) {
@@ -137,15 +150,16 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         Set<String> current = new HashSet<>(perProject);
         Set<String> added = Sets.difference(nowReferenced, current);
         Set<String> removed = Sets.difference(current, nowReferenced);
-        removed.forEach(modelId -> {
+        for (String modelId : removed) {
             perProject.remove(modelId);
             reconcileGlobalAfterProjectDrop(modelId);
-        });
+        }
         for (String modelId : added) {
             perProject.add(modelId);
             globalModelSizes.putIfAbsent(modelId, OptionalLong.empty());
             scheduleFetchIfNeeded(modelId);
         }
+        recomputeHeapRequirement();
     }
 
     private void reconcileGlobalAfterProjectDrop(String modelId) {
@@ -153,6 +167,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         if (stillReferenced == false) {
             globalModelSizes.remove(modelId);
             fetchScheduledModelIds.remove(modelId);
+            recomputeHeapRequirement();
         }
     }
 
@@ -164,7 +179,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         if (fetchScheduledModelIds.add(modelId) == false) {
             return;
         }
-        threadPool.executor(ThreadPool.Names.MANAGEMENT)
+        threadPool.executor(MachineLearning.UTILITY_THREAD_POOL_NAME)
             .execute(
                 () -> trainedModelProvider.getTrainedModel(
                     modelId,
@@ -190,9 +205,11 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         if (stillReferenced == false) {
             globalModelSizes.remove(modelId);
             fetchScheduledModelIds.remove(modelId);
+            recomputeHeapRequirement();
             return;
         }
         globalModelSizes.put(modelId, size);
+        recomputeHeapRequirement();
     }
 
     // Visible for tests
