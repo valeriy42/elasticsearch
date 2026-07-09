@@ -751,3 +751,6 @@ tests:
 - class: org.elasticsearch.repositories.azure.AzureBlobContainerStatsTests
   method: testRetriesAndOperationsAreTrackedSeparately
   issue: https://github.com/elastic/elasticsearch/issues/146899
+- class: org.elasticsearch.xpack.stateless.cache.SharedBlobCacheWarmingServiceIT
+  method: testCacheIsWarmedBeforeSearchShardRecoveryWhenVBCCGetsUploaded
+  issue: https://github.com/elastic/elasticsearch/issues/153406
