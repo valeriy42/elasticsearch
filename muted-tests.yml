@@ -754,3 +754,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.ndjson.NdJsonCompressedFormatSpecIT
   method: test {csv-spec:external-multivalue.mvExpandFromSplit [ndjson.zst/AZURE]}
   issue: https://github.com/elastic/elasticsearch/issues/153566
+- class: org.elasticsearch.xpack.stateless.snapshots.StatelessSnapshotStressTestsIT
+  method: testRandomActivitiesStatelessSnapshotAndRelocationEnabled
+  issue: https://github.com/elastic/elasticsearch/issues/153578
