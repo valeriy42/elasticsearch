@@ -748,3 +748,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.ndjson.NdJsonCompressedFormatSpecIT
   method: test {csv-spec:external-basic.registeredDomainFromEval [ndjson.zst/S3]}
   issue: https://github.com/elastic/elasticsearch/issues/153556
+- class: org.elasticsearch.xpack.esql.qa.ndjson.NdJsonCompressedFormatSpecIT
+  method: test {csv-spec:external-basic.lookupJoinWithExpression [ndjson.bz/HTTP]}
+  issue: https://github.com/elastic/elasticsearch/issues/153557
