@@ -763,3 +763,6 @@ tests:
 - class: org.elasticsearch.repositories.azure.AzureStorageCleanupThirdPartyTests
   method: testIndexLatest
   issue: https://github.com/elastic/elasticsearch/issues/153588
+- class: org.elasticsearch.xpack.esql.qa.ndjson.NdJsonCompressedFormatSpecIT
+  method: test {csv-spec:external-multivalue.mvMaxFromSplit [ndjson.bz/GCS]}
+  issue: https://github.com/elastic/elasticsearch/issues/153589
