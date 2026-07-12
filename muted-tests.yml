@@ -775,3 +775,6 @@ tests:
 - class: org.elasticsearch.blobcache.common.SparseFileTrackerTests
   method: testWaitForEmptySubRangeReturnsImmediately
   issue: https://github.com/elastic/elasticsearch/issues/153378
+- class: org.elasticsearch.xpack.esql.expression.predicate.operator.arithmetic.SubTests
+  method: testEvaluate {TestCase=<big negative double>, <big positive double>}
+  issue: https://github.com/elastic/elasticsearch/issues/153598
