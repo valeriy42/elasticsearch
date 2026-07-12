@@ -760,3 +760,6 @@ tests:
 - class: org.elasticsearch.compute.aggregation.BulkArrowAggregationTests
   method: testSumIntOverArrowBufferMasked
   issue: https://github.com/elastic/elasticsearch/issues/153586
+- class: org.elasticsearch.repositories.azure.AzureStorageCleanupThirdPartyTests
+  method: testIndexLatest
+  issue: https://github.com/elastic/elasticsearch/issues/153588
