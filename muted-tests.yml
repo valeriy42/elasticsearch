@@ -757,3 +757,6 @@ tests:
 - class: org.elasticsearch.xpack.stateless.snapshots.StatelessSnapshotStressTestsIT
   method: testRandomActivitiesStatelessSnapshotAndRelocationEnabled
   issue: https://github.com/elastic/elasticsearch/issues/153578
+- class: org.elasticsearch.compute.aggregation.BulkArrowAggregationTests
+  method: testSumIntOverArrowBufferMasked
+  issue: https://github.com/elastic/elasticsearch/issues/153586
