@@ -769,3 +769,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:inlinestats.inlinestatsWithMixedFiltersAndGroup}
   issue: https://github.com/elastic/elasticsearch/issues/153592
+- class: org.elasticsearch.xpack.esql.CsvIT
+  method: test {csv-spec:ints.signumOfPositiveLong}
+  issue: https://github.com/elastic/elasticsearch/issues/153594
