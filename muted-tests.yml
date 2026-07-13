@@ -787,3 +787,6 @@ tests:
 - class: org.elasticsearch.upgrades.DataStreamsUpgradeIT
   method: testDataStreams
   issue: https://github.com/elastic/elasticsearch/issues/153414
+- class: org.elasticsearch.upgrades.DataStreamsUpgradeIT
+  method: testMigrateDoesNotRestartOnUpgrade
+  issue: https://github.com/elastic/elasticsearch/issues/153415
