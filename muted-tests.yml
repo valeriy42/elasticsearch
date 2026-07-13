@@ -793,3 +793,6 @@ tests:
 - class: org.elasticsearch.upgrades.DataStreamsUpgradeIT
   method: testDataStreamValidationDoesNotBreakUpgrade
   issue: https://github.com/elastic/elasticsearch/issues/153413
+- class: org.elasticsearch.xpack.esql.CsvIT
+  method: test {csv-spec:inlinestats.overridingExpressionGroupings}
+  issue: https://github.com/elastic/elasticsearch/issues/153690
