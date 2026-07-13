@@ -212,7 +212,8 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
 
         putJob(job);
         openJob(job.getId());
-        createDataWithLotsOfClientIps(bucketSpan, job);
+        // Partition count must exceed the 30MB analysis limit so native memoryStatus is not OK at forecast time.
+        createDataWithLotsOfClientIps(bucketSpan, job, MEMORY_STATUS_CLIENT_IP_GRID_I, MEMORY_STATUS_CLIENT_IP_GRID_J);
         ElasticsearchException e = expectThrows(
             ElasticsearchException.class,
             () -> forecast(job.getId(), TimeValue.timeValueMinutes(120), null)
@@ -237,7 +238,7 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
 
         putJob(job);
         openJob(job.getId());
-        long numClientIps = createDataWithLotsOfClientIps(bucketSpan, job);
+        long numClientIps = createDataWithLotsOfClientIps(bucketSpan, job, CLIENT_IP_GRID_SIZE, CLIENT_IP_GRID_SIZE);
 
         // Force the forecast to spill its per-partition models to disk (the behaviour this test targets) via an
         // explicit low max_model_memory, rather than relying on a huge number of partitions to organically exceed
@@ -619,22 +620,24 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
         assertThat(forecasts.size(), equalTo(1));
     }
 
-    // Grid dimensions for the distinct "clientIP" partitions created by createDataWithLotsOfClientIps.
-    // Kept small deliberately: the number of partitions is no longer what forces the forecast's disk-overflow
-    // code path (that's now done via an explicit low max_model_memory on the forecast request), so a large
-    // partition count would only add native-side serialization time without exercising anything extra.
+    // Grid dimensions for testMemoryStatus: enough distinct clientIP partitions to exceed the 30MB analysis limit.
+    private static final int MEMORY_STATUS_CLIENT_IP_GRID_I = 100;
+    private static final int MEMORY_STATUS_CLIENT_IP_GRID_J = 80;
+
+    // Grid dimensions for testOverflowToDisk. Kept small deliberately: partition count no longer forces the
+    // forecast's disk-overflow code path (that's done via an explicit low max_model_memory on the forecast request).
     // See https://github.com/elastic/elasticsearch/issues/148606.
     private static final int CLIENT_IP_GRID_SIZE = 20;
 
-    private long createDataWithLotsOfClientIps(TimeValue bucketSpan, Job.Builder job) {
+    private long createDataWithLotsOfClientIps(TimeValue bucketSpan, Job.Builder job, int gridSizeI, int gridSizeJ) {
         long now = Instant.now().getEpochSecond();
         long timestamp = now - 15 * bucketSpan.seconds();
 
         List<String> data = new ArrayList<>();
         for (int h = 0; h < 15; h++) {
             double value = 10.0 + h;
-            for (int i = 1; i <= CLIENT_IP_GRID_SIZE; i++) {
-                for (int j = 1; j <= CLIENT_IP_GRID_SIZE; j++) {
+            for (int i = 1; i <= gridSizeI; i++) {
+                for (int j = 1; j <= gridSizeJ; j++) {
                     String json = Strings.format("""
                         {"time": %s, "value": %f, "clientIP": "192.168.%d.%d"}
                         """, timestamp, value, i, j);
@@ -646,7 +649,7 @@ public class ForecastIT extends MlNativeAutodetectIntegTestCase {
 
         postData(job.getId(), data.stream().collect(Collectors.joining()));
         flushJob(job.getId(), false);
-        return (long) CLIENT_IP_GRID_SIZE * CLIENT_IP_GRID_SIZE;
+        return (long) gridSizeI * gridSizeJ;
     }
 
     private static Map<String, Object> createRecord(long timestamp, double value) {
