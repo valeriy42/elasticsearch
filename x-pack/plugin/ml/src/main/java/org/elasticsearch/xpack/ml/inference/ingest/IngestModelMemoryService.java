@@ -15,9 +15,12 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.ClusterStateListener;
 import org.elasticsearch.cluster.metadata.ProjectId;
 import org.elasticsearch.cluster.metadata.ProjectMetadata;
+import org.elasticsearch.common.util.concurrent.EsRejectedExecutionException;
 import org.elasticsearch.common.util.set.Sets;
+import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.gateway.GatewayService;
 import org.elasticsearch.ingest.IngestMetadata;
+import org.elasticsearch.threadpool.Scheduler;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.core.ml.action.GetTrainedModelsAction;
 import org.elasticsearch.xpack.core.ml.inference.IngestModelMemoryProvider;
@@ -38,13 +41,18 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
 
     private static final Logger logger = LogManager.getLogger(IngestModelMemoryService.class);
 
+    static final TimeValue UNRESOLVED_MODEL_SIZE_RETRY_INTERVAL = TimeValue.timeValueSeconds(30);
+    static final TimeValue STALE_MODEL_SIZE_WARN_THRESHOLD = TimeValue.timeValueMinutes(5);
+
     private final TrainedModelProvider trainedModelProvider;
     private final ThreadPool threadPool;
 
     private final ConcurrentHashMap<ProjectId, Set<String>> referencedModelsByProject = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, OptionalLong> globalModelSizes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> unresolvedSinceNanos = new ConcurrentHashMap<>();
     private final Set<String> fetchScheduledModelIds = ConcurrentHashMap.newKeySet();
     private final AtomicReference<HeapRequirement> cachedRequirement = new AtomicReference<>(new HeapRequirement(0L, true));
+    private volatile Scheduler.Cancellable retryCancellable;
 
     public IngestModelMemoryService(TrainedModelProvider trainedModelProvider, ThreadPool threadPool) {
         this.trainedModelProvider = trainedModelProvider;
@@ -64,6 +72,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
 
         if (becameMaster(event)) {
             repopulateAllProjects(event.state());
+            startPeriodicRetry();
             return;
         }
 
@@ -119,13 +128,68 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     }
 
     private void clearAllState() {
+        stopPeriodicRetry();
         referencedModelsByProject.clear();
         globalModelSizes.clear();
+        unresolvedSinceNanos.clear();
         fetchScheduledModelIds.clear();
         recomputeHeapRequirement();
     }
 
-    private void recomputeHeapRequirement() {
+    private synchronized void startPeriodicRetry() {
+        if (retryCancellable != null) {
+            return;
+        }
+        try {
+            retryCancellable = threadPool.scheduleWithFixedDelay(
+                this::retryUnresolvedModelSizes,
+                UNRESOLVED_MODEL_SIZE_RETRY_INTERVAL,
+                threadPool.executor(MachineLearning.UTILITY_THREAD_POOL_NAME)
+            );
+        } catch (EsRejectedExecutionException e) {
+            if (e.isExecutorShutdown() == false) {
+                throw e;
+            }
+        }
+    }
+
+    private synchronized void stopPeriodicRetry() {
+        if (retryCancellable != null && retryCancellable.isCancelled() == false) {
+            retryCancellable.cancel();
+            retryCancellable = null;
+        }
+    }
+
+    private void retryUnresolvedModelSizes() {
+        for (String modelId : globalModelSizes.keySet()) {
+            OptionalLong size = globalModelSizes.get(modelId);
+            if (size != null && size.isPresent() == false) {
+                scheduleFetchIfNeeded(modelId);
+                warnIfUnresolvedTooLong(modelId);
+            }
+        }
+    }
+
+    private void warnIfUnresolvedTooLong(String modelId) {
+        Long sinceNanos = unresolvedSinceNanos.get(modelId);
+        if (sinceNanos == null) {
+            return;
+        }
+        if (threadPool.relativeTimeInNanos() - sinceNanos > STALE_MODEL_SIZE_WARN_THRESHOLD.nanos()) {
+            logger.warn(
+                "Ingest model [{}] heap size has been unresolved for over {}; ingest-tier autoscaling quality will stay MINIMUM "
+                    + "until this resolves",
+                modelId,
+                STALE_MODEL_SIZE_WARN_THRESHOLD
+            );
+        }
+    }
+
+    private void recordUnresolvedModel(String modelId) {
+        unresolvedSinceNanos.putIfAbsent(modelId, threadPool.relativeTimeInNanos());
+    }
+
+    private synchronized void recomputeHeapRequirement() {
         long total = 0L;
         boolean exact = true;
         for (OptionalLong size : globalModelSizes.values()) {
@@ -156,7 +220,9 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         }
         for (String modelId : added) {
             perProject.add(modelId);
-            globalModelSizes.putIfAbsent(modelId, OptionalLong.empty());
+            if (globalModelSizes.putIfAbsent(modelId, OptionalLong.empty()) == null) {
+                recordUnresolvedModel(modelId);
+            }
             scheduleFetchIfNeeded(modelId);
         }
         recomputeHeapRequirement();
@@ -166,6 +232,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         boolean stillReferenced = referencedModelsByProject.values().stream().anyMatch(set -> set.contains(modelId));
         if (stillReferenced == false) {
             globalModelSizes.remove(modelId);
+            unresolvedSinceNanos.remove(modelId);
             fetchScheduledModelIds.remove(modelId);
             recomputeHeapRequirement();
         }
@@ -204,11 +271,17 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
         boolean stillReferenced = referencedModelsByProject.values().stream().anyMatch(set -> set.contains(modelId));
         if (stillReferenced == false) {
             globalModelSizes.remove(modelId);
+            unresolvedSinceNanos.remove(modelId);
             fetchScheduledModelIds.remove(modelId);
             recomputeHeapRequirement();
             return;
         }
         globalModelSizes.put(modelId, size);
+        if (size.isPresent()) {
+            unresolvedSinceNanos.remove(modelId);
+        } else {
+            recordUnresolvedModel(modelId);
+        }
         recomputeHeapRequirement();
     }
 
@@ -219,5 +292,17 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
 
     boolean isTrackingModelForProjectForTests(ProjectId projectId, String modelId) {
         return referencedModelsByProject.getOrDefault(projectId, Set.of()).contains(modelId);
+    }
+
+    void propagateModelSizeForTests(String modelId, OptionalLong size) {
+        propagateModelSize(modelId, size);
+    }
+
+    void retryUnresolvedModelSizesForTests() {
+        retryUnresolvedModelSizes();
+    }
+
+    void setUnresolvedSinceNanosForTests(String modelId, long sinceNanos) {
+        unresolvedSinceNanos.put(modelId, sinceNanos);
     }
 }

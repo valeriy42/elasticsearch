@@ -7,6 +7,7 @@
 
 package org.elasticsearch.xpack.ml.inference.ingest;
 
+import org.apache.logging.log4j.Level;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.cluster.ClusterChangedEvent;
 import org.elasticsearch.cluster.ClusterName;
@@ -25,6 +26,7 @@ import org.elasticsearch.inference.InferenceResults;
 import org.elasticsearch.ingest.IngestMetadata;
 import org.elasticsearch.ingest.PipelineConfiguration;
 import org.elasticsearch.test.ESTestCase;
+import org.elasticsearch.test.MockLog;
 import org.elasticsearch.threadpool.ScalingExecutorBuilder;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
@@ -44,6 +46,9 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.equalTo;
@@ -79,6 +84,13 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
 
     @After
     public void tearDownComponents() throws Exception {
+        service.clusterChanged(
+            new ClusterChangedEvent(
+                "test",
+                nonMasterClusterState(ClusterState.EMPTY_STATE.metadata()),
+                masterClusterState(ClusterState.EMPTY_STATE.metadata())
+            )
+        );
         terminate(threadPool);
     }
 
@@ -122,6 +134,8 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
 
         ClusterState withModel = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
         service.clusterChanged(new ClusterChangedEvent("test", withModel, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
+
+        assertBusy(() -> assertThat(pendingListener.get(), notNullValue()));
 
         ClusterState withoutModel = masterClusterState(withIngestModels(Map.of()));
         service.clusterChanged(new ClusterChangedEvent("test", withoutModel, withModel));
@@ -225,6 +239,88 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
             any(),
             any()
         );
+    }
+
+    public void testConcurrentModelSizeUpdatesShouldReflectBothSizes() throws Exception {
+        stubModelConfig("model-a", 100L);
+        stubModelConfig("model-b", 200L);
+        ClusterState current = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a,model-b")));
+        service.clusterChanged(new ClusterChangedEvent("test", current, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
+
+        assertBusy(() -> assertThat(service.getRequiredHeapBytes().heapBytes(), equalTo(300L)));
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        Thread threadA = new Thread(() -> {
+            safeAwait(barrier);
+            service.propagateModelSizeForTests("model-a", OptionalLong.of(150L));
+        });
+        Thread threadB = new Thread(() -> {
+            safeAwait(barrier);
+            service.propagateModelSizeForTests("model-b", OptionalLong.of(250L));
+        });
+        threadA.start();
+        threadB.start();
+        threadA.join();
+        threadB.join();
+
+        IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
+        assertThat(requirement.heapBytes(), equalTo(400L));
+        assertThat(requirement.isExact(), is(true));
+    }
+
+    public void testFailedModelFetchShouldRetryAndEventuallyResolve() throws Exception {
+        TrainedModelConfig trainedModelConfig = mock(TrainedModelConfig.class);
+        when(trainedModelConfig.getModelSize()).thenReturn(100L);
+        AtomicInteger fetchAttempts = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (fetchAttempts.incrementAndGet() == 1) {
+                ActionListener<TrainedModelConfig> listener = invocation.getArgument(3);
+                listener.onFailure(new RuntimeException("transient failure"));
+            } else {
+                ActionListener<TrainedModelConfig> listener = invocation.getArgument(3);
+                listener.onResponse(trainedModelConfig);
+            }
+            return null;
+        }).when(trainedModelProvider).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+
+        ClusterState current = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
+        service.clusterChanged(new ClusterChangedEvent("test", current, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
+
+        assertBusy(() -> assertThat(service.getRequiredHeapBytes().isExact(), is(false)));
+        verify(trainedModelProvider, times(1)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+
+        service.retryUnresolvedModelSizesForTests();
+
+        assertBusy(() -> {
+            IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
+            assertThat(requirement.heapBytes(), equalTo(100L));
+            assertThat(requirement.isExact(), is(true));
+        });
+        verify(trainedModelProvider, times(2)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+    }
+
+    public void testUnresolvedModelSizeShouldWarnAfterStalenessThreshold() throws Exception {
+        doAnswer(invocation -> null).when(trainedModelProvider)
+            .getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+
+        ClusterState current = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
+        service.clusterChanged(new ClusterChangedEvent("test", current, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
+
+        long staleSince = threadPool.relativeTimeInNanos() - IngestModelMemoryService.STALE_MODEL_SIZE_WARN_THRESHOLD.nanos() - 1;
+        service.setUnresolvedSinceNanosForTests("model-a", staleSince);
+
+        try (var mockLog = MockLog.capture(IngestModelMemoryService.class)) {
+            mockLog.addExpectation(
+                new MockLog.SeenEventExpectation(
+                    "stale model size",
+                    IngestModelMemoryService.class.getCanonicalName(),
+                    Level.WARN,
+                    "Ingest model [model-a] heap size has been unresolved for over *"
+                )
+            );
+            service.retryUnresolvedModelSizesForTests();
+            mockLog.assertAllExpectationsMatched();
+        }
     }
 
     private void stubModelConfig(String modelId, long modelSize) {
