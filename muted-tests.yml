@@ -604,9 +604,6 @@ tests:
 - class: org.elasticsearch.xpack.security.SecurityRolesMultiProjectIT
   method: testUpdatingFileBasedRoleAffectsAllProjects
   issue: https://github.com/elastic/elasticsearch/issues/152582
-- class: org.elasticsearch.xpack.esql.CsvIT
-  method: test {csv-spec:inlinestats.afterWhere}
-  issue: https://github.com/elastic/elasticsearch/issues/152591
 - class: org.elasticsearch.xpack.stateless.StatelessRealTimeGetIT
   method: testStress
   issue: https://github.com/elastic/elasticsearch/issues/152671
@@ -755,9 +752,6 @@ tests:
   method: test {csv-spec:external-multivalue.mvMaxFromSplit [ndjson.bz/GCS]}
   issue: https://github.com/elastic/elasticsearch/issues/153589
 - class: org.elasticsearch.xpack.esql.CsvIT
-  method: test {csv-spec:inlinestats.inlinestatsWithMixedFiltersAndGroup}
-  issue: https://github.com/elastic/elasticsearch/issues/153592
-- class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:ints.signumOfPositiveLong}
   issue: https://github.com/elastic/elasticsearch/issues/153594
 - class: org.elasticsearch.blobcache.common.SparseFileTrackerTests
@@ -784,9 +778,6 @@ tests:
 - class: org.elasticsearch.upgrades.DataStreamsUpgradeIT
   method: testDataStreamValidationDoesNotBreakUpgrade
   issue: https://github.com/elastic/elasticsearch/issues/153413
-- class: org.elasticsearch.xpack.esql.CsvIT
-  method: test {csv-spec:inlinestats.overridingExpressionGroupings}
-  issue: https://github.com/elastic/elasticsearch/issues/153690
 - class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecStatsFirstLastIT
   method: test {csv-spec:stats_first_last.Test aggregating on integers from row}
   issue: https://github.com/elastic/elasticsearch/issues/153700
@@ -796,9 +787,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.ndjson.NdJsonCompressedFormatSpecIT
   method: test {csv-spec:external-basic.lookupJoinWithExpression [ndjson.bz2/HTTP]}
   issue: https://github.com/elastic/elasticsearch/issues/153744
-- class: org.elasticsearch.xpack.esql.CsvIT
-  method: test {csv-spec:inlinestats.doubleInlineStatsPrunning_With_MV_Functions2}
-  issue: https://github.com/elastic/elasticsearch/issues/153750
 - class: org.elasticsearch.xpack.transform.transforms.TransformIndexerStateTests
   method: testRunOneJobAtATime
   issue: https://github.com/elastic/elasticsearch/issues/153770
