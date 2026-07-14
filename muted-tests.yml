@@ -817,3 +817,6 @@ tests:
 - class: org.elasticsearch.xpack.transform.transforms.TransformIndexerStateTests
   method: testRunOneJobAtATime
   issue: https://github.com/elastic/elasticsearch/issues/153770
+- class: org.elasticsearch.xpack.esql.action.ExternalCsvHivePartitionedIT
+  method: testHivePartitionShadowWarningReachesClient
+  issue: https://github.com/elastic/elasticsearch/issues/153780
