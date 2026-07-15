@@ -802,3 +802,6 @@ tests:
 - class: org.elasticsearch.xpack.stateless.reshard.StatelessReshardIT
   method: testSearchAtDone
   issue: https://github.com/elastic/elasticsearch/issues/154008
+- class: org.elasticsearch.xpack.transform.integration.TransformScheduleNowIT
+  method: testScheduleNowWithoutDefer
+  issue: https://github.com/elastic/elasticsearch/issues/154010
