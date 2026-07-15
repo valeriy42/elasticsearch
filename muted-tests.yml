@@ -808,3 +808,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:inlinestats.multiIndexIndirectUseOfUnionTypesInInlineStats}
   issue: https://github.com/elastic/elasticsearch/issues/153915
+- class: org.elasticsearch.xpack.esql.CsvIT
+  method: test {csv-spec:vector-cosine-similarity.similarityAsPartOfExpression}
+  issue: https://github.com/elastic/elasticsearch/issues/153917
