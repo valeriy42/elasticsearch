@@ -805,6 +805,11 @@ public class MachineLearning extends Plugin
     );
 
     /**
+     * Interval between scans of {@code .ml-config} for config-derived datafeed gauges (CPS adoption metrics).
+     */
+    public static final Setting<TimeValue> DATAFEED_METRICS_POLL_INTERVAL = MlDatafeedMetrics.POLL_INTERVAL;
+
+    /**
      * The time that has to pass after scaling up, before scaling down is allowed.
      * Note that the ML autoscaling has its own cooldown time to release the hardware.
      */
@@ -926,6 +931,7 @@ public class MachineLearning extends Plugin
             JOB_OPEN_RETRY_TIMEOUT,
             CCS_STABILIZATION_CYCLES,
             CCS_STABILIZATION_FLOOR,
+            DATAFEED_METRICS_POLL_INTERVAL,
             DUMMY_ENTITY_MEMORY,
             DUMMY_ENTITY_PROCESSORS,
             SCALE_UP_COOLDOWN_TIME,
@@ -1466,6 +1472,13 @@ public class MachineLearning extends Plugin
             autodetectProcessManager,
             dataFrameAnalyticsManager
         );
+        MlDatafeedMetrics mlDatafeedMetrics = new MlDatafeedMetrics(
+            telemetryProvider.getMeterRegistry(),
+            clusterService,
+            threadPool,
+            datafeedConfigProvider,
+            settings
+        );
         return List.of(
             mlLifeCycleService,
             new MlControllerHolder(mlController),
@@ -1501,7 +1514,8 @@ public class MachineLearning extends Plugin
             deploymentManager.get(),
             nodeAvailabilityZoneMapper,
             new MachineLearningExtensionHolder(machineLearningExtension.get()),
-            mlMetrics
+            mlMetrics,
+            mlDatafeedMetrics
         );
     }
 
