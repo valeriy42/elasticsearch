@@ -805,3 +805,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:k8s-timeseries.firstAndLastWithNullSort}
   issue: https://github.com/elastic/elasticsearch/issues/153555
+- class: org.elasticsearch.xpack.esql.CsvIT
+  method: test {csv-spec:inlinestats.multiIndexIndirectUseOfUnionTypesInInlineStats}
+  issue: https://github.com/elastic/elasticsearch/issues/153915
