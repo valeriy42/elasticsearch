@@ -40,12 +40,13 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Config-derived datafeed gauges collected by periodically scanning {@code .ml-config}.
- * CPS adoption metrics are the first metric family exposed here.
+ * Gauges derived from ML configuration documents in {@code .ml-config}, collected by periodically
+ * scanning the config index on the elected master. CPS datafeed adoption metrics are the first
+ * metric family exposed here.
  */
-public final class MlDatafeedMetrics extends AbstractLifecycleComponent implements ClusterStateListener {
+public final class MlConfigMetrics extends AbstractLifecycleComponent implements ClusterStateListener {
 
-    private static final Logger logger = LogManager.getLogger(MlDatafeedMetrics.class);
+    private static final Logger logger = LogManager.getLogger(MlConfigMetrics.class);
 
     /**
      * Alias routing expression that matches all authorized target projects.
@@ -56,7 +57,7 @@ public final class MlDatafeedMetrics extends AbstractLifecycleComponent implemen
     private static final Map<String, Object> MASTER_FALSE_MAP = Map.of("es.ml.is_master", Boolean.FALSE);
 
     public static final Setting<TimeValue> POLL_INTERVAL = Setting.timeSetting(
-        "xpack.ml.datafeed.metrics.poll_interval",
+        "xpack.ml.config.metrics.poll_interval",
         TimeValue.timeValueSeconds(60),
         TimeValue.timeValueSeconds(10),
         Property.Dynamic,
@@ -151,7 +152,7 @@ public final class MlDatafeedMetrics extends AbstractLifecycleComponent implemen
     private Scheduler.Cancellable scheduledPoll;
     private volatile TimeValue pollInterval;
 
-    public MlDatafeedMetrics(
+    public MlConfigMetrics(
         MeterRegistry meterRegistry,
         ClusterService clusterService,
         ThreadPool threadPool,

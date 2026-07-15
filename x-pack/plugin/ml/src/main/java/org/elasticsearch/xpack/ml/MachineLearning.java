@@ -805,9 +805,9 @@ public class MachineLearning extends Plugin
     );
 
     /**
-     * Interval between scans of {@code .ml-config} for config-derived datafeed gauges (CPS adoption metrics).
+     * Interval between scans of {@code .ml-config} for config-derived ML gauges (CPS datafeed adoption metrics).
      */
-    public static final Setting<TimeValue> DATAFEED_METRICS_POLL_INTERVAL = MlDatafeedMetrics.POLL_INTERVAL;
+    public static final Setting<TimeValue> CONFIG_METRICS_POLL_INTERVAL = MlConfigMetrics.POLL_INTERVAL;
 
     /**
      * The time that has to pass after scaling up, before scaling down is allowed.
@@ -931,7 +931,7 @@ public class MachineLearning extends Plugin
             JOB_OPEN_RETRY_TIMEOUT,
             CCS_STABILIZATION_CYCLES,
             CCS_STABILIZATION_FLOOR,
-            DATAFEED_METRICS_POLL_INTERVAL,
+            CONFIG_METRICS_POLL_INTERVAL,
             DUMMY_ENTITY_MEMORY,
             DUMMY_ENTITY_PROCESSORS,
             SCALE_UP_COOLDOWN_TIME,
@@ -1472,7 +1472,7 @@ public class MachineLearning extends Plugin
             autodetectProcessManager,
             dataFrameAnalyticsManager
         );
-        MlDatafeedMetrics mlDatafeedMetrics = new MlDatafeedMetrics(
+        MlConfigMetrics mlConfigMetrics = new MlConfigMetrics(
             telemetryProvider.getMeterRegistry(),
             clusterService,
             threadPool,
@@ -1515,7 +1515,7 @@ public class MachineLearning extends Plugin
             nodeAvailabilityZoneMapper,
             new MachineLearningExtensionHolder(machineLearningExtension.get()),
             mlMetrics,
-            mlDatafeedMetrics
+            mlConfigMetrics
         );
     }
 

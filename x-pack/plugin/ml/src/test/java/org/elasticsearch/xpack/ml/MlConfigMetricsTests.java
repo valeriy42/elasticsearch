@@ -51,7 +51,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class MlDatafeedMetricsTests extends ESTestCase {
+public class MlConfigMetricsTests extends ESTestCase {
 
     private TestThreadPool threadPool;
     private ClusterService clusterService;
@@ -98,34 +98,28 @@ public class MlDatafeedMetricsTests extends ESTestCase {
             datafeed("legacy", null, null, Map.of("Authorization", "ApiKey abc"))
         );
 
-        MlDatafeedMetrics.CpsDatafeedCounts counts = MlDatafeedMetrics.computeCounts(configs);
+        MlConfigMetrics.CpsDatafeedCounts counts = MlConfigMetrics.computeCounts(configs);
 
         assertThat(counts.internalCredentialCount(), equalTo(1L));
-        assertThat(counts.countForAuthType(MlDatafeedMetrics.AuthType.UIAM), equalTo(1L));
-        assertThat(counts.countForAuthType(MlDatafeedMetrics.AuthType.LEGACY), equalTo(1L));
-        assertThat(counts.countForRoutingBucket(MlDatafeedMetrics.ProjectRoutingBucket.UNQUALIFIED), equalTo(2L));
-        assertThat(counts.countForRoutingBucket(MlDatafeedMetrics.ProjectRoutingBucket.LOCAL_ONLY), equalTo(3L));
-        assertThat(counts.countForRoutingBucket(MlDatafeedMetrics.ProjectRoutingBucket.ALL_PROJECTS), equalTo(1L));
-        assertThat(counts.countForRoutingBucket(MlDatafeedMetrics.ProjectRoutingBucket.ALIAS_PATTERN), equalTo(1L));
-        assertThat(counts.countForRoutingBucket(MlDatafeedMetrics.ProjectRoutingBucket.TAG_EXPRESSION), equalTo(1L));
+        assertThat(counts.countForAuthType(MlConfigMetrics.AuthType.UIAM), equalTo(1L));
+        assertThat(counts.countForAuthType(MlConfigMetrics.AuthType.LEGACY), equalTo(1L));
+        assertThat(counts.countForRoutingBucket(MlConfigMetrics.ProjectRoutingBucket.UNQUALIFIED), equalTo(2L));
+        assertThat(counts.countForRoutingBucket(MlConfigMetrics.ProjectRoutingBucket.LOCAL_ONLY), equalTo(3L));
+        assertThat(counts.countForRoutingBucket(MlConfigMetrics.ProjectRoutingBucket.ALL_PROJECTS), equalTo(1L));
+        assertThat(counts.countForRoutingBucket(MlConfigMetrics.ProjectRoutingBucket.ALIAS_PATTERN), equalTo(1L));
+        assertThat(counts.countForRoutingBucket(MlConfigMetrics.ProjectRoutingBucket.TAG_EXPRESSION), equalTo(1L));
     }
 
     public void testRoutingBucketShouldClassifyKnownRoutingValues() {
-        assertThat(MlDatafeedMetrics.routingBucket(null), equalTo(MlDatafeedMetrics.ProjectRoutingBucket.UNQUALIFIED));
+        assertThat(MlConfigMetrics.routingBucket(null), equalTo(MlConfigMetrics.ProjectRoutingBucket.UNQUALIFIED));
         assertThat(
-            MlDatafeedMetrics.routingBucket(ProjectRoutingResolver.LOCAL_ONLY),
-            equalTo(MlDatafeedMetrics.ProjectRoutingBucket.LOCAL_ONLY)
+            MlConfigMetrics.routingBucket(ProjectRoutingResolver.LOCAL_ONLY),
+            equalTo(MlConfigMetrics.ProjectRoutingBucket.LOCAL_ONLY)
         );
-        assertThat(
-            MlDatafeedMetrics.routingBucket(ProjectRoutingResolver.ORIGIN),
-            equalTo(MlDatafeedMetrics.ProjectRoutingBucket.LOCAL_ONLY)
-        );
-        assertThat(MlDatafeedMetrics.routingBucket("_alias:*"), equalTo(MlDatafeedMetrics.ProjectRoutingBucket.ALL_PROJECTS));
-        assertThat(MlDatafeedMetrics.routingBucket("_alias:prod-*"), equalTo(MlDatafeedMetrics.ProjectRoutingBucket.ALIAS_PATTERN));
-        assertThat(
-            MlDatafeedMetrics.routingBucket("_project._region:us-*"),
-            equalTo(MlDatafeedMetrics.ProjectRoutingBucket.TAG_EXPRESSION)
-        );
+        assertThat(MlConfigMetrics.routingBucket(ProjectRoutingResolver.ORIGIN), equalTo(MlConfigMetrics.ProjectRoutingBucket.LOCAL_ONLY));
+        assertThat(MlConfigMetrics.routingBucket("_alias:*"), equalTo(MlConfigMetrics.ProjectRoutingBucket.ALL_PROJECTS));
+        assertThat(MlConfigMetrics.routingBucket("_alias:prod-*"), equalTo(MlConfigMetrics.ProjectRoutingBucket.ALIAS_PATTERN));
+        assertThat(MlConfigMetrics.routingBucket("_project._region:us-*"), equalTo(MlConfigMetrics.ProjectRoutingBucket.TAG_EXPRESSION));
     }
 
     public void testPollIfMasterShouldUpdateGaugeObservers() throws Exception {
@@ -142,7 +136,7 @@ public class MlDatafeedMetricsTests extends ESTestCase {
         );
         stubExpandDatafeedConfigs(builders);
 
-        MlDatafeedMetrics metrics = new MlDatafeedMetrics(meterRegistry, clusterService, threadPool, datafeedConfigProvider, settings);
+        MlConfigMetrics metrics = new MlConfigMetrics(meterRegistry, clusterService, threadPool, datafeedConfigProvider, settings);
         metrics.pollIfMaster();
 
         assertThat(internalCredentialsObserver.get().value(), equalTo(1L));
@@ -165,7 +159,7 @@ public class MlDatafeedMetricsTests extends ESTestCase {
         Settings settings = cpsMasterSettings();
         when(clusterService.state()).thenReturn(nonMasterClusterState());
 
-        MlDatafeedMetrics metrics = new MlDatafeedMetrics(meterRegistry, clusterService, threadPool, datafeedConfigProvider, settings);
+        MlConfigMetrics metrics = new MlConfigMetrics(meterRegistry, clusterService, threadPool, datafeedConfigProvider, settings);
         metrics.pollIfMaster();
 
         verify(datafeedConfigProvider, never()).expandDatafeedConfigs(anyString(), eq(true), isNull(), any());
