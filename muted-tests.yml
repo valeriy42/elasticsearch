@@ -799,3 +799,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.CsvIT
   method: test {csv-spec:vector-cosine-similarity.similarityAsPartOfExpression}
   issue: https://github.com/elastic/elasticsearch/issues/153917
+- class: org.elasticsearch.xpack.esql.action.S3ManagedIdentityAuthIT
+  method: testQueryFailsWhenWrongCredentialIsUsed
+  issue: https://github.com/elastic/elasticsearch/issues/153821
