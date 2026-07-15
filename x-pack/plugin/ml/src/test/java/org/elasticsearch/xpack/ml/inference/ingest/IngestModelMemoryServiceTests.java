@@ -286,8 +286,15 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
         ClusterState current = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
         service.clusterChanged(new ClusterChangedEvent("test", current, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
 
-        assertBusy(() -> assertThat(service.getRequiredHeapBytes().isExact(), is(false)));
-        verify(trainedModelProvider, times(1)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+        assertBusy(() -> {
+            assertThat(service.getRequiredHeapBytes().isExact(), is(false));
+            verify(trainedModelProvider, times(1)).getTrainedModel(
+                eq("model-a"),
+                eq(GetTrainedModelsAction.Includes.empty()),
+                any(),
+                any()
+            );
+        });
 
         service.retryUnresolvedModelSizesForTests();
 
