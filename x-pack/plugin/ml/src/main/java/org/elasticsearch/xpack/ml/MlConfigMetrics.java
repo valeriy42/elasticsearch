@@ -58,7 +58,7 @@ public final class MlConfigMetrics extends AbstractLifecycleComponent implements
 
     public static final Setting<TimeValue> POLL_INTERVAL = Setting.timeSetting(
         "xpack.ml.config.metrics.poll_interval",
-        TimeValue.timeValueSeconds(60),
+        TimeValue.timeValueSeconds(300),
         TimeValue.timeValueSeconds(10),
         Property.Dynamic,
         Property.NodeScope
