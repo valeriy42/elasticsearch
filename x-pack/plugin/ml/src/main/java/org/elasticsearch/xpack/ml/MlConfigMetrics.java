@@ -60,7 +60,6 @@ public final class MlConfigMetrics extends AbstractLifecycleComponent implements
         "xpack.ml.config.metrics.poll_interval",
         TimeValue.timeValueSeconds(300),
         TimeValue.timeValueSeconds(10),
-        Property.Dynamic,
         Property.NodeScope
     );
 
@@ -268,6 +267,7 @@ public final class MlConfigMetrics extends AbstractLifecycleComponent implements
             return;
         }
         if (clusterService.state().nodes().isLocalNodeElectedMaster() == false) {
+            cpsCounts = CpsDatafeedCounts.EMPTY;
             return;
         }
         if (crossProjectMlEnabled() == false) {

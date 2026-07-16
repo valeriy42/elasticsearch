@@ -1256,7 +1256,8 @@ public class MachineLearning extends Plugin
             System::currentTimeMillis,
             anomalyDetectionAuditor,
             autodetectProcessManager,
-            datafeedContextProvider
+            datafeedContextProvider,
+            telemetryProvider.getMeterRegistry()
         );
         this.datafeedRunner.set(datafeedRunner);
 

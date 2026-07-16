@@ -166,6 +166,26 @@ public class MlConfigMetricsTests extends ESTestCase {
         assertThat(internalCredentialsObserver.get().value(), equalTo(0L));
     }
 
+    public void testPollIfMasterOnNonMasterShouldClearCachedCounts() {
+        assumeTrue("feature under test must be enabled", CloudCredentialsExtension.ML_CROSS_PROJECT.isEnabled());
+
+        Settings settings = cpsMasterSettings();
+        when(clusterService.state()).thenAnswer(invocation -> masterClusterState());
+
+        PersistedCloudCredential uiamCredential = new PersistedCloudCredential("key-1", new SecureString("secret".toCharArray()));
+        stubExpandDatafeedConfigs(List.of(datafeedBuilder("uiam", ProjectRoutingResolver.LOCAL_ONLY, uiamCredential, null)));
+
+        MlConfigMetrics metrics = new MlConfigMetrics(meterRegistry, clusterService, threadPool, datafeedConfigProvider, settings);
+        metrics.clusterChanged(masterClusterChangedEvent());
+        metrics.pollIfMaster();
+        assertThat(internalCredentialsObserver.get().value(), equalTo(1L));
+
+        when(clusterService.state()).thenReturn(nonMasterClusterState());
+        metrics.pollIfMaster();
+
+        assertThat(internalCredentialsObserver.get().value(), equalTo(0L));
+    }
+
     private static Settings cpsMasterSettings() {
         return Settings.builder().put("serverless.cross_project.enabled", true).put(DiscoveryNodeRole.MASTER_ROLE.roleName(), true).build();
     }
