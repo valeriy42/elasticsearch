@@ -811,3 +811,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecK8sTimeseriesIT
   method: test {csv-spec:k8s-timeseries.firstAndLastWithNullSort}
   issue: https://github.com/elastic/elasticsearch/issues/153613
+- class: org.elasticsearch.xpack.esql.CsvFlattenedKeywordIT
+  method: test {csv-spec:k8s-timeseries.firstAndLastWithNullSort}
+  issue: https://github.com/elastic/elasticsearch/issues/153638
