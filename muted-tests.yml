@@ -733,3 +733,6 @@ tests:
 - class: org.elasticsearch.reindex.ReindexerTests
   method: testRemoteReindexClosesRemoteInfoOnNormalCompletion
   issue: https://github.com/elastic/elasticsearch/issues/154294
+- class: org.elasticsearch.xpack.esql.qa.mixed.MixedClusterEsqlSpecK8sTimeseriesIT
+  method: test {csv-spec:k8s-timeseries.firstAndLastWithNullSort}
+  issue: https://github.com/elastic/elasticsearch/issues/153565
