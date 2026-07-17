@@ -186,6 +186,32 @@ public class MlConfigMetricsTests extends ESTestCase {
         assertThat(internalCredentialsObserver.get().value(), equalTo(0L));
     }
 
+    public void testPollIfMasterShouldClearCountsWhenDemotedWhileScanInFlight() {
+        assumeTrue("feature under test must be enabled", CloudCredentialsExtension.ML_CROSS_PROJECT.isEnabled());
+
+        Settings settings = cpsMasterSettings();
+        when(clusterService.state()).thenAnswer(invocation -> masterClusterState());
+
+        PersistedCloudCredential uiamCredential = new PersistedCloudCredential("key-1", new SecureString("secret".toCharArray()));
+        List<DatafeedConfig.Builder> builders = List.of(datafeedBuilder("uiam", ProjectRoutingResolver.LOCAL_ONLY, uiamCredential, null));
+
+        // Simulate the response arriving after this node lost mastership mid-flight: flip the
+        // mocked cluster state to non-master before invoking the listener, matching the race
+        // reported in https://github.com/elastic/elasticsearch/pull/153951#discussion_r3588720677.
+        doAnswer(invocation -> {
+            when(clusterService.state()).thenReturn(nonMasterClusterState());
+            @SuppressWarnings("unchecked")
+            ActionListener<List<DatafeedConfig.Builder>> listener = invocation.getArgument(3);
+            listener.onResponse(builders);
+            return null;
+        }).when(datafeedConfigProvider).expandDatafeedConfigs(eq("_all"), eq(true), isNull(), any());
+
+        MlConfigMetrics metrics = new MlConfigMetrics(meterRegistry, clusterService, threadPool, datafeedConfigProvider, settings);
+        metrics.pollIfMaster();
+
+        assertThat(internalCredentialsObserver.get().value(), equalTo(0L));
+    }
+
     private static Settings cpsMasterSettings() {
         return Settings.builder().put("serverless.cross_project.enabled", true).put(DiscoveryNodeRole.MASTER_ROLE.roleName(), true).build();
     }

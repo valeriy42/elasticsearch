@@ -280,7 +280,10 @@ public final class MlConfigMetrics extends AbstractLifecycleComponent implements
         datafeedConfigProvider.expandDatafeedConfigs("_all", true, null, ActionListener.wrap(builders -> {
             try {
                 List<DatafeedConfig> configs = builders.stream().map(DatafeedConfig.Builder::build).toList();
-                cpsCounts = computeCounts(configs);
+                // The scan is async: this node may have lost mastership while the request was in flight.
+                // clusterChanged() already reset cpsCounts to EMPTY on demotion; re-check here so a late
+                // response can't overwrite that with stale non-empty counts on a now non-master node.
+                cpsCounts = clusterService.state().nodes().isLocalNodeElectedMaster() ? computeCounts(configs) : CpsDatafeedCounts.EMPTY;
             } finally {
                 pollInProgress.set(false);
             }
