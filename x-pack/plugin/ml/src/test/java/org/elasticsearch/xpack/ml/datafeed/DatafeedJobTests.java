@@ -6,6 +6,7 @@
  */
 package org.elasticsearch.xpack.ml.datafeed;
 
+import org.elasticsearch.ElasticsearchSecurityException;
 import org.elasticsearch.action.ActionFuture;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.DocWriteRequest;
@@ -24,6 +25,7 @@ import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.common.xcontent.XContentElasticsearchExtension;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.index.shard.ShardId;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.ToXContent;
@@ -83,6 +85,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -449,6 +452,66 @@ public class DatafeedJobTests extends ESTestCase {
         assertEquals(2000L, endTimeCaptor.getAllValues().get(1).longValue());
         assertThat(flushJobRequests.getAllValues().isEmpty(), is(true));
         verify(client, never()).execute(same(PersistJobAction.INSTANCE), any());
+    }
+
+    public void testCloudCredentialFailureShouldAuditOncePerFailureEpisode() throws Exception {
+        currentTime = 3001;
+        ElasticsearchSecurityException securityFailure = new ElasticsearchSecurityException("invalid key", RestStatus.UNAUTHORIZED);
+        IOException extractionFailure = new IOException(securityFailure);
+        when(dataExtractor.hasNext()).thenReturn(true, true);
+        doThrow(extractionFailure).doThrow(extractionFailure).when(dataExtractor).next();
+
+        DatafeedJob datafeedJob = createDatafeedJob(
+            1000,
+            500,
+            -1,
+            -1,
+            false,
+            DELAYED_DATA_CHECK_FREQ.get(Settings.EMPTY).millis(),
+            new CrossClusterSearchStats(() -> Instant.ofEpochMilli(currentTime)),
+            "key-abc"
+        );
+        expectThrows(DatafeedJob.ExtractionProblemException.class, datafeedJob::runRealtime);
+        currentTime = 6001;
+        expectThrows(DatafeedJob.ExtractionProblemException.class, datafeedJob::runRealtime);
+
+        verify(auditor, times(1)).warning(
+            eq(jobId),
+            eq(Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc"))
+        );
+    }
+
+    public void testCloudCredentialFailureShouldReAuditAfterSuccessfulExtraction() throws Exception {
+        currentTime = 3001;
+        ElasticsearchSecurityException securityFailure = new ElasticsearchSecurityException("invalid key", RestStatus.UNAUTHORIZED);
+        IOException extractionFailure = new IOException(securityFailure);
+        byte[] contentBytes = "content".getBytes(StandardCharsets.UTF_8);
+        InputStream inputStream = new ByteArrayInputStream(contentBytes);
+        when(dataExtractor.hasNext()).thenReturn(true, true, false, true);
+        doThrow(extractionFailure).doAnswer(
+            invocation -> new DataExtractor.Result(new SearchInterval(1000L, 2000L), Optional.of(inputStream), List.of())
+        ).doThrow(extractionFailure).when(dataExtractor).next();
+
+        DatafeedJob datafeedJob = createDatafeedJob(
+            1000,
+            500,
+            -1,
+            -1,
+            false,
+            DELAYED_DATA_CHECK_FREQ.get(Settings.EMPTY).millis(),
+            new CrossClusterSearchStats(() -> Instant.ofEpochMilli(currentTime)),
+            "key-abc"
+        );
+        expectThrows(DatafeedJob.ExtractionProblemException.class, datafeedJob::runRealtime);
+        currentTime = 6001;
+        datafeedJob.runRealtime();
+        currentTime = 9001;
+        expectThrows(DatafeedJob.ExtractionProblemException.class, datafeedJob::runRealtime);
+
+        verify(auditor, times(2)).warning(
+            eq(jobId),
+            eq(Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc"))
+        );
     }
 
     public void testPostAnalysisProblem() {
@@ -1021,11 +1084,33 @@ public class DatafeedJobTests extends ESTestCase {
         long delayedDataFreq,
         CrossClusterSearchStats crossClusterSearchStats
     ) {
+        return createDatafeedJob(
+            frequencyMs,
+            queryDelayMs,
+            latestFinalBucketEndTimeMs,
+            latestRecordTimeMs,
+            haveSeenDataPreviously,
+            delayedDataFreq,
+            crossClusterSearchStats,
+            null
+        );
+    }
+
+    private DatafeedJob createDatafeedJob(
+        long frequencyMs,
+        long queryDelayMs,
+        long latestFinalBucketEndTimeMs,
+        long latestRecordTimeMs,
+        boolean haveSeenDataPreviously,
+        long delayedDataFreq,
+        CrossClusterSearchStats crossClusterSearchStats,
+        String cloudCredentialId
+    ) {
         Supplier<Long> currentTimeSupplier = () -> currentTime;
         return new DatafeedJob(
             jobId,
             "datafeed-" + jobId,
-            null,
+            cloudCredentialId,
             dataDescription.build(),
             frequencyMs,
             queryDelayMs,

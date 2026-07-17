@@ -66,9 +66,9 @@ public class DataExtractorUtilsTests extends ESTestCase {
         Loggers.removeAppender(LOGGER, mockAppender);
     }
 
-    public void testCloudCredentialSecurityFailureShouldLogWarnAndAudit() {
+    public void testCloudCredentialAuthenticationFailureShouldLogWarnAndAudit() {
         AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
-        ElasticsearchSecurityException failure = new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN);
+        ElasticsearchSecurityException failure = new ElasticsearchSecurityException("invalid key", RestStatus.UNAUTHORIZED);
 
         DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", "key-abc", auditor);
 
@@ -81,7 +81,28 @@ public class DataExtractorUtilsTests extends ESTestCase {
         verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc"));
     }
 
-    public void testCloudCredentialSearchPhaseSecurityFailureShouldLogWarnAndAudit() {
+    public void testCloudCredentialAuthorizationFailureShouldLogWarnAndAudit() {
+        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
+        ElasticsearchSecurityException failure = new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN);
+
+        DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", "key-abc", auditor);
+
+        LogEvent logEvent = mockAppender.getLastEventAndReset();
+        assertNotNull(logEvent);
+        assertThat(logEvent.getLevel(), equalTo(Level.WARN));
+        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_AUTHZ_FAILURE, "key-abc"));
+    }
+
+    public void testCloudCredentialWrappedAuthenticationFailureShouldClassifyViaCauseChain() {
+        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
+        Throwable failure = new RuntimeException(new ElasticsearchSecurityException("invalid key", RestStatus.UNAUTHORIZED));
+
+        DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", "key-abc", auditor);
+
+        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc"));
+    }
+
+    public void testCloudCredentialSearchPhaseAuthorizationFailureShouldLogWarnAndAudit() {
         AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
         ShardSearchFailure shardFailure = new ShardSearchFailure(new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN));
         SearchPhaseExecutionException failure = new SearchPhaseExecutionException(
@@ -95,7 +116,7 @@ public class DataExtractorUtilsTests extends ESTestCase {
         LogEvent logEvent = mockAppender.getLastEventAndReset();
         assertNotNull(logEvent);
         assertThat(logEvent.getLevel(), equalTo(Level.WARN));
-        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc"));
+        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_AUTHZ_FAILURE, "key-abc"));
     }
 
     public void testCloudCredentialSecurityFailureWithoutCredentialIdShouldNotLogOrAudit() {

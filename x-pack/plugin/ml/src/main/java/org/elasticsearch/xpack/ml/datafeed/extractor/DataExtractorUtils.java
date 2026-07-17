@@ -28,6 +28,7 @@ import org.elasticsearch.search.aggregations.metrics.Max;
 import org.elasticsearch.search.aggregations.metrics.Min;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.xpack.core.ml.job.messages.Messages;
+import org.elasticsearch.xpack.core.ml.utils.ExceptionsHelper;
 import org.elasticsearch.xpack.ml.datafeed.LinkedClusterState;
 import org.elasticsearch.xpack.ml.notifications.AnomalyDetectionAuditor;
 
@@ -221,6 +222,62 @@ public final class DataExtractorUtils {
         }
     }
 
+    public enum CloudCredentialFailureKind {
+        NONE,
+        AUTHENTICATION,
+        AUTHORIZATION
+    }
+
+    /**
+     * Classifies whether a CPS datafeed search failure is auth-shaped and, if so, whether it is
+     * authentication (401) or authorization (403). No-op when no cloud credential is configured.
+     */
+    public static CloudCredentialFailureKind classifyCloudCredentialSearchFailure(Throwable failure, @Nullable String cloudCredentialId) {
+        if (cloudCredentialId == null) {
+            return CloudCredentialFailureKind.NONE;
+        }
+        CloudCredentialFailureKind kind = CloudCredentialFailureKind.NONE;
+        // ExceptionsHelper.unwrapCause only unwraps ElasticsearchWrapperException, so walk getCause()
+        // explicitly to classify security failures wrapped in ordinary exceptions.
+        Throwable current = failure;
+        while (current != null) {
+            kind = strongerCredentialFailureKind(kind, failureKindAtThrowable(current));
+            if (kind == CloudCredentialFailureKind.AUTHENTICATION) {
+                return CloudCredentialFailureKind.AUTHENTICATION;
+            }
+            current = current.getCause();
+        }
+        return kind;
+    }
+
+    /**
+     * When a CPS datafeed search fails with an auth-shaped exception, log and audit so runtime credential
+     * failures are distinguishable from generic search errors.
+     */
+    public static void reportCloudCredentialSearchFailure(
+        CloudCredentialFailureKind kind,
+        String jobId,
+        String datafeedId,
+        String cloudCredentialId,
+        AnomalyDetectionAuditor auditor
+    ) {
+        if (kind == CloudCredentialFailureKind.NONE) {
+            return;
+        }
+        String auditTemplate = switch (kind) {
+            case AUTHENTICATION -> Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE;
+            case AUTHORIZATION -> Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_AUTHZ_FAILURE;
+            case NONE -> throw new AssertionError("unreachable");
+        };
+        LOGGER.warn(
+            "[{}] Datafeed [{}] search failed due to invalid or revoked internal cloud API key [{}]",
+            jobId,
+            datafeedId,
+            cloudCredentialId
+        );
+        auditor.warning(jobId, Messages.getMessage(auditTemplate, cloudCredentialId));
+    }
+
     /**
      * When a CPS datafeed search fails with an auth-shaped exception, log and audit so runtime credential
      * failures are distinguishable from generic search errors. No-op when no cloud credential is configured.
@@ -232,47 +289,51 @@ public final class DataExtractorUtils {
         @Nullable String cloudCredentialId,
         AnomalyDetectionAuditor auditor
     ) {
-        if (cloudCredentialId == null || isSecuritySearchFailure(failure) == false) {
-            return;
+        CloudCredentialFailureKind kind = classifyCloudCredentialSearchFailure(failure, cloudCredentialId);
+        if (kind != CloudCredentialFailureKind.NONE) {
+            reportCloudCredentialSearchFailure(kind, jobId, datafeedId, cloudCredentialId, auditor);
         }
-        LOGGER.warn(
-            "[{}] Datafeed [{}] search failed due to invalid or revoked internal cloud API key [{}]: {}",
-            jobId,
-            datafeedId,
-            cloudCredentialId,
-            failure.getMessage()
-        );
-        auditor.warning(jobId, Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, cloudCredentialId));
     }
 
-    private static boolean isSecuritySearchFailure(Throwable failure) {
-        Throwable current = failure;
-        while (current != null) {
-            if (current instanceof ElasticsearchSecurityException) {
-                return true;
-            }
-            if (current instanceof ElasticsearchStatusException statusException) {
-                RestStatus status = statusException.status();
-                if (status == RestStatus.FORBIDDEN || status == RestStatus.UNAUTHORIZED) {
-                    return true;
-                }
-            }
-            if (current instanceof SearchPhaseExecutionException searchPhaseExecutionException) {
-                for (ShardSearchFailure shardFailure : searchPhaseExecutionException.shardFailures()) {
-                    if (isSecurityShardFailure(shardFailure)) {
-                        return true;
-                    }
-                }
-            }
-            current = current.getCause();
+    private static CloudCredentialFailureKind strongerCredentialFailureKind(
+        CloudCredentialFailureKind current,
+        CloudCredentialFailureKind candidate
+    ) {
+        if (current == CloudCredentialFailureKind.AUTHENTICATION || candidate == CloudCredentialFailureKind.AUTHENTICATION) {
+            return CloudCredentialFailureKind.AUTHENTICATION;
         }
-        return false;
+        if (current == CloudCredentialFailureKind.AUTHORIZATION || candidate == CloudCredentialFailureKind.AUTHORIZATION) {
+            return CloudCredentialFailureKind.AUTHORIZATION;
+        }
+        return CloudCredentialFailureKind.NONE;
     }
 
-    private static boolean isSecurityShardFailure(ShardSearchFailure failure) {
-        if (failure.getCause() instanceof ElasticsearchSecurityException) {
-            return true;
+    private static CloudCredentialFailureKind failureKindAtThrowable(Throwable failure) {
+        if (failure instanceof SearchPhaseExecutionException searchPhaseExecutionException) {
+            return failureKindAtThrowable(ExceptionsHelper.findSearchExceptionRootCause(searchPhaseExecutionException));
         }
-        return failure.status() == RestStatus.FORBIDDEN || failure.status() == RestStatus.UNAUTHORIZED;
+        if (failure instanceof ElasticsearchSecurityException securityException) {
+            return failureKindForStatus(securityException.status());
+        }
+        if (failure instanceof ElasticsearchStatusException statusException) {
+            return failureKindForStatus(statusException.status());
+        }
+        if (failure instanceof ShardSearchFailure shardSearchFailure) {
+            if (shardSearchFailure.getCause() instanceof ElasticsearchSecurityException securityException) {
+                return failureKindForStatus(securityException.status());
+            }
+            return failureKindForStatus(shardSearchFailure.status());
+        }
+        return CloudCredentialFailureKind.NONE;
+    }
+
+    private static CloudCredentialFailureKind failureKindForStatus(RestStatus status) {
+        if (status == RestStatus.UNAUTHORIZED) {
+            return CloudCredentialFailureKind.AUTHENTICATION;
+        }
+        if (status == RestStatus.FORBIDDEN) {
+            return CloudCredentialFailureKind.AUTHORIZATION;
+        }
+        return CloudCredentialFailureKind.NONE;
     }
 }

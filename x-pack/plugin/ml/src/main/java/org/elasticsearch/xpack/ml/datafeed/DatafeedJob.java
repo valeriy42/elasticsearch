@@ -88,6 +88,8 @@ class DatafeedJob {
     private volatile boolean haveEverSeenData;
     private volatile long consecutiveDelayedDataBuckets;
     private volatile SearchInterval searchInterval;
+    private volatile DataExtractorUtils.CloudCredentialFailureKind lastReportedCloudCredentialFailure =
+        DataExtractorUtils.CloudCredentialFailureKind.NONE;
 
     DatafeedJob(
         String jobId,
@@ -398,8 +400,21 @@ class DatafeedJob {
                             result.linkedClusterStates()
                         );
                     }
+                    lastReportedCloudCredentialFailure = DataExtractorUtils.CloudCredentialFailureKind.NONE;
                 } catch (Exception e) {
-                    DataExtractorUtils.checkForCloudCredentialSearchFailure(e, jobId, datafeedId, cloudCredentialId, auditor);
+                    DataExtractorUtils.CloudCredentialFailureKind credentialFailureKind = DataExtractorUtils
+                        .classifyCloudCredentialSearchFailure(e, cloudCredentialId);
+                    if (credentialFailureKind != DataExtractorUtils.CloudCredentialFailureKind.NONE
+                        && credentialFailureKind != lastReportedCloudCredentialFailure) {
+                        DataExtractorUtils.reportCloudCredentialSearchFailure(
+                            credentialFailureKind,
+                            jobId,
+                            datafeedId,
+                            cloudCredentialId,
+                            auditor
+                        );
+                        lastReportedCloudCredentialFailure = credentialFailureKind;
+                    }
                     LOGGER.warn(() -> "[" + jobId + "] error while extracting data", e);
                     // When extraction problems are encountered, we do not want to advance time.
                     // Instead, it is preferable to retry the given interval next time an extraction

@@ -29,7 +29,6 @@ import org.elasticsearch.xpack.ml.annotations.AnnotationPersister;
 import org.elasticsearch.xpack.ml.datafeed.delayeddatacheck.DelayedDataDetector;
 import org.elasticsearch.xpack.ml.datafeed.delayeddatacheck.DelayedDataDetectorFactory;
 import org.elasticsearch.xpack.ml.datafeed.extractor.DataExtractorFactory;
-import org.elasticsearch.xpack.ml.datafeed.extractor.DataExtractorUtils;
 import org.elasticsearch.xpack.ml.job.persistence.JobResultsPersister;
 import org.elasticsearch.xpack.ml.notifications.AnomalyDetectionAuditor;
 
@@ -182,13 +181,6 @@ public class DatafeedJobBuilder {
 
             listener.onResponse(datafeedJob);
         }, e -> {
-            DataExtractorUtils.checkForCloudCredentialSearchFailure(
-                e,
-                job.getId(),
-                effectiveDatafeedConfig.getId(),
-                cloudCredentialId,
-                auditor
-            );
             auditor.error(job.getId(), e.getMessage());
             listener.onFailure(e);
         });
