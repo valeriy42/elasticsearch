@@ -748,3 +748,6 @@ tests:
 - class: org.elasticsearch.xpack.slm.SnapshotLifecycleRestIT
   method: testSnapshotRetentionWithMissingRepo
   issue: https://github.com/elastic/elasticsearch/issues/154353
+- class: org.elasticsearch.smoketest.SmokeTestMultiNodeClientYamlTestSuiteIT
+  method: test {yaml=search.vectors/41_knn_search_half_byte_quantized_bfloat16/Knn search with mip}
+  issue: https://github.com/elastic/elasticsearch/issues/154355
