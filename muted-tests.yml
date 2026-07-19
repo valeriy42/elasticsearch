@@ -745,3 +745,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.ndjson.NdJsonFormatSpecIT
   method: test {csv-spec:external-basic.selectSpecificColumns [HTTP]}
   issue: https://github.com/elastic/elasticsearch/issues/154338
+- class: org.elasticsearch.xpack.slm.SnapshotLifecycleRestIT
+  method: testSnapshotRetentionWithMissingRepo
+  issue: https://github.com/elastic/elasticsearch/issues/154353
