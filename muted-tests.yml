@@ -751,3 +751,6 @@ tests:
 - class: org.elasticsearch.reindex.ReindexerTests
   method: testRemoteReindexClosesRemoteInfoOnEarlyFailure
   issue: https://github.com/elastic/elasticsearch/issues/154237
+- class: org.elasticsearch.xpack.esql.CsvIT
+  method: test {csv-spec:unmapped-type-conflicts.noTypeConflictKeywordKeepTriggersLoadInlineStats}
+  issue: https://github.com/elastic/elasticsearch/issues/154377
