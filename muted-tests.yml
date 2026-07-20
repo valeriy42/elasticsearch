@@ -757,3 +757,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.qa.mixed.MixedClusterEsqlSpecConditionalIT
   method: test {csv-spec:conditional.casePartialFoldMultivalueTextKeepsKeyword}
   issue: https://github.com/elastic/elasticsearch/issues/154449
+- class: org.elasticsearch.xpack.esql.qa.mixed.MixedClusterEsqlSpecConditionalIT
+  method: test {csv-spec:conditional.casePartialFoldTextArmNullElseKeepsKeyword}
+  issue: https://github.com/elastic/elasticsearch/issues/154450
