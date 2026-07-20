@@ -751,3 +751,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecConditionalIT
   method: test {csv-spec:conditional.singleCondition}
   issue: https://github.com/elastic/elasticsearch/issues/154436
+- class: org.elasticsearch.xpack.esql.ccq.MultiClusterSpecConditionalIT
+  method: test {csv-spec:conditional.casePartialFoldTrailingTextArmKeepsKeyword}
+  issue: https://github.com/elastic/elasticsearch/issues/154437
