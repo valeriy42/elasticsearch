@@ -7,17 +7,11 @@
 
 package org.elasticsearch.xpack.ml.datafeed.extractor;
 
-import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.core.LogEvent;
 import org.apache.lucene.search.TotalHits;
 import org.elasticsearch.ElasticsearchSecurityException;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.ShardSearchFailure;
-import org.elasticsearch.common.logging.Loggers;
-import org.elasticsearch.common.logging.MockAppender;
 import org.elasticsearch.core.ReleasableRef;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.rest.RestStatus;
@@ -25,10 +19,8 @@ import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.suggest.Suggest;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.xpack.core.ml.job.messages.Messages;
+import org.elasticsearch.xpack.ml.datafeed.DatafeedCloudCredentialDiagnostics;
 import org.elasticsearch.xpack.ml.datafeed.LinkedClusterState;
-import org.elasticsearch.xpack.ml.notifications.AnomalyDetectionAuditor;
-import org.junit.After;
-import org.junit.Before;
 
 import java.util.Collections;
 import java.util.List;
@@ -39,8 +31,6 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -49,61 +39,39 @@ import static org.mockito.Mockito.when;
  */
 public class DataExtractorUtilsTests extends ESTestCase {
 
-    private static final Logger LOGGER = LogManager.getLogger(DataExtractorUtils.class);
-
-    private MockAppender mockAppender;
-
-    @Before
-    public void setUpMockAppender() throws Exception {
-        mockAppender = new MockAppender("data_extractor_utils_test_appender");
-        mockAppender.start();
-        Loggers.addAppender(LOGGER, mockAppender);
-    }
-
-    @After
-    public void tearDownMockAppender() throws Exception {
-        mockAppender.stop();
-        Loggers.removeAppender(LOGGER, mockAppender);
-    }
-
-    public void testCloudCredentialAuthenticationFailureShouldLogWarnAndAudit() {
-        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
+    public void testCloudCredentialAuthenticationFailureShouldClassifyAndEnrich() {
         ElasticsearchSecurityException failure = new ElasticsearchSecurityException("invalid key", RestStatus.UNAUTHORIZED);
 
-        DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", "key-abc", auditor);
+        DataExtractorUtils.CloudCredentialFailureKind kind = DataExtractorUtils.classifyCloudCredentialSearchFailure(failure, "key-abc");
+        Exception enriched = DatafeedCloudCredentialDiagnostics.enrichIfCloudCredentialFailure("key-abc", kind, failure);
 
-        LogEvent logEvent = mockAppender.getLastEventAndReset();
-        assertNotNull(logEvent);
-        assertThat(logEvent.getLevel(), equalTo(Level.WARN));
-        assertThat(logEvent.getMessage().getFormattedMessage(), containsString("job-1"));
-        assertThat(logEvent.getMessage().getFormattedMessage(), containsString("datafeed-1"));
-        assertThat(logEvent.getMessage().getFormattedMessage(), containsString("key-abc"));
-        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc"));
+        assertThat(kind, equalTo(DataExtractorUtils.CloudCredentialFailureKind.AUTHENTICATION));
+        assertThat(enriched.getMessage(), equalTo(Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc")));
+        assertThat(enriched.getCause(), equalTo(failure));
     }
 
-    public void testCloudCredentialAuthorizationFailureShouldLogWarnAndAudit() {
-        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
+    public void testCloudCredentialAuthorizationFailureShouldClassifyAndEnrich() {
         ElasticsearchSecurityException failure = new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN);
 
-        DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", "key-abc", auditor);
+        DataExtractorUtils.CloudCredentialFailureKind kind = DataExtractorUtils.classifyCloudCredentialSearchFailure(failure, "key-abc");
+        Exception enriched = DatafeedCloudCredentialDiagnostics.enrichIfCloudCredentialFailure("key-abc", kind, failure);
 
-        LogEvent logEvent = mockAppender.getLastEventAndReset();
-        assertNotNull(logEvent);
-        assertThat(logEvent.getLevel(), equalTo(Level.WARN));
-        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_AUTHZ_FAILURE, "key-abc"));
+        assertThat(kind, equalTo(DataExtractorUtils.CloudCredentialFailureKind.AUTHORIZATION));
+        assertThat(
+            enriched.getMessage(),
+            equalTo(Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_AUTHZ_FAILURE, "key-abc"))
+        );
     }
 
     public void testCloudCredentialWrappedAuthenticationFailureShouldClassifyViaCauseChain() {
-        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
         Throwable failure = new RuntimeException(new ElasticsearchSecurityException("invalid key", RestStatus.UNAUTHORIZED));
 
-        DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", "key-abc", auditor);
+        DataExtractorUtils.CloudCredentialFailureKind kind = DataExtractorUtils.classifyCloudCredentialSearchFailure(failure, "key-abc");
 
-        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE, "key-abc"));
+        assertThat(kind, equalTo(DataExtractorUtils.CloudCredentialFailureKind.AUTHENTICATION));
     }
 
-    public void testCloudCredentialSearchPhaseAuthorizationFailureShouldLogWarnAndAudit() {
-        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
+    public void testCloudCredentialSearchPhaseAuthorizationFailureShouldClassify() {
         ShardSearchFailure shardFailure = new ShardSearchFailure(new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN));
         SearchPhaseExecutionException failure = new SearchPhaseExecutionException(
             "query",
@@ -111,37 +79,27 @@ public class DataExtractorUtilsTests extends ESTestCase {
             new ShardSearchFailure[] { shardFailure }
         );
 
-        DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", "key-abc", auditor);
+        DataExtractorUtils.CloudCredentialFailureKind kind = DataExtractorUtils.classifyCloudCredentialSearchFailure(failure, "key-abc");
 
-        LogEvent logEvent = mockAppender.getLastEventAndReset();
-        assertNotNull(logEvent);
-        assertThat(logEvent.getLevel(), equalTo(Level.WARN));
-        verify(auditor).warning("job-1", Messages.getMessage(Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_AUTHZ_FAILURE, "key-abc"));
+        assertThat(kind, equalTo(DataExtractorUtils.CloudCredentialFailureKind.AUTHORIZATION));
     }
 
-    public void testCloudCredentialSecurityFailureWithoutCredentialIdShouldNotLogOrAudit() {
-        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
+    public void testCloudCredentialSecurityFailureWithoutCredentialIdShouldNotClassify() {
         ElasticsearchSecurityException failure = new ElasticsearchSecurityException("action denied", RestStatus.FORBIDDEN);
 
-        DataExtractorUtils.checkForCloudCredentialSearchFailure(failure, "job-1", "datafeed-1", null, auditor);
+        DataExtractorUtils.CloudCredentialFailureKind kind = DataExtractorUtils.classifyCloudCredentialSearchFailure(failure, null);
 
-        assertNull(mockAppender.getLastEventAndReset());
-        verify(auditor, never()).warning(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        assertThat(kind, equalTo(DataExtractorUtils.CloudCredentialFailureKind.NONE));
+        assertThat(DatafeedCloudCredentialDiagnostics.enrichIfCloudCredentialFailure(null, kind, failure), equalTo(failure));
     }
 
-    public void testCloudCredentialNonSecurityFailureShouldNotLogOrAudit() {
-        AnomalyDetectionAuditor auditor = mock(AnomalyDetectionAuditor.class);
+    public void testCloudCredentialNonSecurityFailureShouldNotClassify() {
+        RuntimeException failure = new RuntimeException("connection reset");
 
-        DataExtractorUtils.checkForCloudCredentialSearchFailure(
-            new RuntimeException("connection reset"),
-            "job-1",
-            "datafeed-1",
-            "key-abc",
-            auditor
-        );
+        DataExtractorUtils.CloudCredentialFailureKind kind = DataExtractorUtils.classifyCloudCredentialSearchFailure(failure, "key-abc");
 
-        assertNull(mockAppender.getLastEventAndReset());
-        verify(auditor, never()).warning(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        assertThat(kind, equalTo(DataExtractorUtils.CloudCredentialFailureKind.NONE));
+        assertThat(DatafeedCloudCredentialDiagnostics.enrichIfCloudCredentialFailure("key-abc", kind, failure), equalTo(failure));
     }
 
     public void testExtractLinkedClusterStates_returnsEmptyWhenClustersIsNull() {

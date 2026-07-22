@@ -7,8 +7,6 @@
 
 package org.elasticsearch.xpack.ml.datafeed.extractor;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ElasticsearchSecurityException;
 import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.ResourceNotFoundException;
@@ -27,10 +25,8 @@ import org.elasticsearch.search.aggregations.InternalAggregations;
 import org.elasticsearch.search.aggregations.metrics.Max;
 import org.elasticsearch.search.aggregations.metrics.Min;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
-import org.elasticsearch.xpack.core.ml.job.messages.Messages;
 import org.elasticsearch.xpack.core.ml.utils.ExceptionsHelper;
 import org.elasticsearch.xpack.ml.datafeed.LinkedClusterState;
-import org.elasticsearch.xpack.ml.notifications.AnomalyDetectionAuditor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,8 +35,6 @@ import java.util.List;
  * Utility methods for various DataExtractor implementations.
  */
 public final class DataExtractorUtils {
-
-    private static final Logger LOGGER = LogManager.getLogger(DataExtractorUtils.class);
 
     private static final String EPOCH_MILLIS = "epoch_millis";
     private static final String EARLIEST_TIME = "earliest_time";
@@ -248,51 +242,6 @@ public final class DataExtractorUtils {
             current = current.getCause();
         }
         return kind;
-    }
-
-    /**
-     * When a CPS datafeed search fails with an auth-shaped exception, log and audit so runtime credential
-     * failures are distinguishable from generic search errors.
-     */
-    public static void reportCloudCredentialSearchFailure(
-        CloudCredentialFailureKind kind,
-        String jobId,
-        String datafeedId,
-        String cloudCredentialId,
-        AnomalyDetectionAuditor auditor
-    ) {
-        if (kind == CloudCredentialFailureKind.NONE) {
-            return;
-        }
-        String auditTemplate = switch (kind) {
-            case AUTHENTICATION -> Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_FAILURE;
-            case AUTHORIZATION -> Messages.JOB_AUDIT_DATAFEED_CPS_KEY_RUNTIME_AUTHZ_FAILURE;
-            case NONE -> throw new AssertionError("unreachable");
-        };
-        LOGGER.warn(
-            "[{}] Datafeed [{}] search failed due to invalid or revoked internal cloud API key [{}]",
-            jobId,
-            datafeedId,
-            cloudCredentialId
-        );
-        auditor.warning(jobId, Messages.getMessage(auditTemplate, cloudCredentialId));
-    }
-
-    /**
-     * When a CPS datafeed search fails with an auth-shaped exception, log and audit so runtime credential
-     * failures are distinguishable from generic search errors. No-op when no cloud credential is configured.
-     */
-    public static void checkForCloudCredentialSearchFailure(
-        Throwable failure,
-        String jobId,
-        String datafeedId,
-        @Nullable String cloudCredentialId,
-        AnomalyDetectionAuditor auditor
-    ) {
-        CloudCredentialFailureKind kind = classifyCloudCredentialSearchFailure(failure, cloudCredentialId);
-        if (kind != CloudCredentialFailureKind.NONE) {
-            reportCloudCredentialSearchFailure(kind, jobId, datafeedId, cloudCredentialId, auditor);
-        }
     }
 
     private static CloudCredentialFailureKind strongerCredentialFailureKind(
