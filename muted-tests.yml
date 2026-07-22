@@ -733,3 +733,6 @@ tests:
 - class: org.elasticsearch.xpack.esql.action.ExternalCsvHivePartitionedIT
   method: testCommaSeparatedResourceFirstFileWinsRoundTrips
   issue: https://github.com/elastic/elasticsearch/issues/154662
+- class: org.elasticsearch.blobcache.common.SparseFileTrackerTests
+  method: testClaimedGapsDoNotExtendBeyondRequestedRangeWhenCaller1FillsFirst
+  issue: https://github.com/elastic/elasticsearch/issues/154666
