@@ -736,3 +736,6 @@ tests:
 - class: org.elasticsearch.blobcache.common.SparseFileTrackerTests
   method: testClaimedGapsDoNotExtendBeyondRequestedRangeWhenCaller1FillsFirst
   issue: https://github.com/elastic/elasticsearch/issues/154666
+- class: org.elasticsearch.http.netty4.Netty4HttpServerTransportTests
+  method: testLargeRequestIsNeverDispatched
+  issue: https://github.com/elastic/elasticsearch/issues/154657
