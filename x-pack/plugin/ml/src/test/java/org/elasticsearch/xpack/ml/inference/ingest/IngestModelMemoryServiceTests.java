@@ -179,7 +179,7 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
         verify(trainedModelProvider, times(1)).getTrainedModel(eq("model-b"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
     }
 
-    public void testZeroModelSizeStoredAsInexact() throws Exception {
+    public void testZeroModelSizeStoredAsExact() throws Exception {
         stubModelConfig("model-a", 0L);
         ClusterState current = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
         service.clusterChanged(new ClusterChangedEvent("test", current, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
@@ -187,8 +187,11 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
         assertBusy(() -> {
             IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
             assertThat(requirement.heapBytes(), equalTo(0L));
-            assertThat(requirement.isExact(), is(false));
+            assertThat(requirement.isExact(), is(true));
         });
+
+        service.retryUnresolvedModelSizesForTests();
+        verify(trainedModelProvider, times(1)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
     }
 
     public void testNonMasterClearsTrackedState() throws Exception {

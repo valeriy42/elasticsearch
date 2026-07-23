@@ -264,7 +264,7 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     }
 
     private static OptionalLong toStoredSize(long modelSizeBytes) {
-        return modelSizeBytes > 0 ? OptionalLong.of(modelSizeBytes) : OptionalLong.empty();
+        return OptionalLong.of(modelSizeBytes);
     }
 
     private void propagateModelSize(String modelId, OptionalLong size) {
