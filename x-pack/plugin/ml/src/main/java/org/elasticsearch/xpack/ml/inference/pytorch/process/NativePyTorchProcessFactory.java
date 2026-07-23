@@ -53,8 +53,7 @@ public class NativePyTorchProcessFactory implements PyTorchProcessFactory {
         clusterService.getClusterSettings()
             .addSettingsUpdateConsumer(MachineLearningField.MODEL_GRAPH_VALIDATION_ENABLED, this::setModelGraphValidationEnabled);
         this.sandboxEnabled = MachineLearningField.SANDBOX_ENABLED.get(env.settings());
-        clusterService.getClusterSettings()
-            .addSettingsUpdateConsumer(MachineLearningField.SANDBOX_ENABLED, this::setSandboxEnabled);
+        clusterService.getClusterSettings().addSettingsUpdateConsumer(MachineLearningField.SANDBOX_ENABLED, this::setSandboxEnabled);
     }
 
     void setProcessConnectTimeout(TimeValue processConnectTimeout) {
