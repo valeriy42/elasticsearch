@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -344,13 +345,13 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
     public void testUnresolvableModelReferenceBecomesExactZeroAfterThreshold() throws Exception {
         TrainedModelConfig trainedModelConfig = mock(TrainedModelConfig.class);
         when(trainedModelConfig.getModelSize()).thenReturn(100L);
-        AtomicInteger fetchAttempts = new AtomicInteger();
+        AtomicBoolean allowResolution = new AtomicBoolean(false);
         doAnswer(invocation -> {
             ActionListener<TrainedModelConfig> listener = invocation.getArgument(3);
-            if (fetchAttempts.incrementAndGet() == 1) {
-                listener.onFailure(new RuntimeException("model not found"));
-            } else {
+            if (allowResolution.get()) {
                 listener.onResponse(trainedModelConfig);
+            } else {
+                listener.onFailure(new RuntimeException("model not found"));
             }
             return null;
         }).when(trainedModelProvider).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
@@ -377,11 +378,27 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
         assertThat(staleRequirement.heapBytes(), equalTo(0L));
         assertThat(staleRequirement.isExact(), is(true));
 
+        assertBusy(() -> verify(trainedModelProvider, times(2)).getTrainedModel(
+            eq("model-a"),
+            eq(GetTrainedModelsAction.Includes.empty()),
+            any(),
+            any()
+        ));
+
+        allowResolution.set(true);
+        service.reconcileModelSizesForTests();
+
         assertBusy(() -> {
             IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
             assertThat(requirement.heapBytes(), equalTo(100L));
             assertThat(requirement.isExact(), is(true));
         });
+        verify(trainedModelProvider, times(3)).getTrainedModel(
+            eq("model-a"),
+            eq(GetTrainedModelsAction.Includes.empty()),
+            any(),
+            any()
+        );
     }
 
     public void testUnresolvedModelSizeShouldWarnAfterStalenessThreshold() throws Exception {
