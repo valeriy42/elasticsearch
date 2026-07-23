@@ -190,8 +190,8 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
             assertThat(requirement.isExact(), is(true));
         });
 
-        service.retryUnresolvedModelSizesForTests();
-        verify(trainedModelProvider, times(1)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+        service.reconcileModelSizesForTests();
+        verify(trainedModelProvider, times(2)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
     }
 
     public void testNonMasterClearsTrackedState() throws Exception {
@@ -299,7 +299,7 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
             );
         });
 
-        service.retryUnresolvedModelSizesForTests();
+        service.reconcileModelSizesForTests();
 
         assertBusy(() -> {
             IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
@@ -307,6 +307,38 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
             assertThat(requirement.isExact(), is(true));
         });
         verify(trainedModelProvider, times(2)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+    }
+
+    public void testModelDeletedWhilePipelineRemainsDropsStaleHeap() throws Exception {
+        TrainedModelConfig trainedModelConfig = mock(TrainedModelConfig.class);
+        when(trainedModelConfig.getModelSize()).thenReturn(100L);
+        AtomicInteger fetchAttempts = new AtomicInteger();
+        doAnswer(invocation -> {
+            ActionListener<TrainedModelConfig> listener = invocation.getArgument(3);
+            if (fetchAttempts.incrementAndGet() == 1) {
+                listener.onResponse(trainedModelConfig);
+            } else {
+                listener.onFailure(new RuntimeException("model not found"));
+            }
+            return null;
+        }).when(trainedModelProvider).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+
+        ClusterState current = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
+        service.clusterChanged(new ClusterChangedEvent("test", current, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
+
+        assertBusy(() -> {
+            IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
+            assertThat(requirement.heapBytes(), equalTo(100L));
+            assertThat(requirement.isExact(), is(true));
+        });
+
+        service.reconcileModelSizesForTests();
+
+        assertBusy(() -> {
+            IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
+            assertThat(requirement.heapBytes(), equalTo(0L));
+            assertThat(requirement.isExact(), is(false));
+        });
     }
 
     public void testUnresolvedModelSizeShouldWarnAfterStalenessThreshold() throws Exception {
@@ -328,7 +360,7 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
                     "Ingest model [model-a] heap size has been unresolved for over *"
                 )
             );
-            service.retryUnresolvedModelSizesForTests();
+            service.reconcileModelSizesForTests();
             mockLog.assertAllExpectationsMatched();
         }
     }
