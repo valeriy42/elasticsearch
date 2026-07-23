@@ -14,8 +14,10 @@ import org.elasticsearch.common.xcontent.support.XContentMapValues;
 import org.elasticsearch.core.Booleans;
 import org.elasticsearch.core.RestApiVersion;
 import org.elasticsearch.core.Strings;
+import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.logging.LogManager;
 import org.elasticsearch.logging.Logger;
+import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.xcontent.XContentType;
 
 import java.io.IOException;
@@ -147,10 +149,10 @@ public class MlAssignmentPlannerUpgradeIT extends AbstractUpgradeTestCase {
         assertThat(stat.toString(), actualMemoryUsage.toString(), equalTo(expectedMemoryUsage.toString()));
     }
 
-    private Response getTrainedModelStats(String modelId) throws IOException {
+    private Response getTrainedModelStats(String modelId) throws Exception {
         Request request = new Request("GET", "/_ml/trained_models/" + modelId + "/_stats");
         request.setOptions(request.getOptions().toBuilder().setWarningsHandler(PERMISSIVE).build());
-        var response = client().performRequest(request);
+        var response = performRequestWithRetryOnTransientStatus(request, TimeValue.timeValueSeconds(30), RestStatus.NOT_FOUND);
         assertOK(response);
         return response;
     }
