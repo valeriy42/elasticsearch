@@ -14,6 +14,7 @@ import org.elasticsearch.client.internal.Client;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
+import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.reindex.DeleteByQueryAction;
 import org.elasticsearch.index.reindex.DeleteByQueryRequest;
@@ -33,6 +34,7 @@ import java.util.Set;
 import static org.elasticsearch.core.Tuple.tuple;
 import static org.hamcrest.Matchers.arrayContaining;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
@@ -151,6 +153,30 @@ public class JobDataDeleterTests extends ESTestCase {
             }
         });
         verify(client, times(2)).threadPool();
+    }
+
+    public void testDeleteResultsFromTimeShouldUseSingleSliceAndShortScrollKeepAlive() {
+        MockWritableIndexExpander.create(true);
+        JobDataDeleter jobDataDeleter = new JobDataDeleter(client, JOB_ID, randomBoolean());
+        jobDataDeleter.deleteResultsFromTime(0L, ActionTestUtils.assertNoFailureListener(deleteResponse -> {}));
+
+        verify(client).execute(eq(DeleteByQueryAction.INSTANCE), deleteRequestCaptor.capture(), any());
+        DeleteByQueryRequest deleteRequest = deleteRequestCaptor.getValue();
+        assertThat(deleteRequest.getSlices(), equalTo(1));
+        assertThat(deleteRequest.getScrollTime(), equalTo(TimeValue.timeValueMinutes(1)));
+        verify(client, times(1)).threadPool();
+    }
+
+    public void testDeleteAnnotationsShouldUseSingleSliceAndShortScrollKeepAlive() {
+        MockWritableIndexExpander.create(true);
+        JobDataDeleter jobDataDeleter = new JobDataDeleter(client, JOB_ID, randomBoolean());
+        jobDataDeleter.deleteAnnotations(null, null, null, ActionTestUtils.assertNoFailureListener(deleteResponse -> {}));
+
+        verify(client).execute(eq(DeleteByQueryAction.INSTANCE), deleteRequestCaptor.capture(), any());
+        DeleteByQueryRequest deleteRequest = deleteRequestCaptor.getValue();
+        assertThat(deleteRequest.getSlices(), equalTo(1));
+        assertThat(deleteRequest.getScrollTime(), equalTo(TimeValue.timeValueMinutes(1)));
+        verify(client, times(1)).threadPool();
     }
 
     public void testDeleteResultsFromTime() {
