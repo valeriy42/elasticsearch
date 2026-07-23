@@ -341,6 +341,49 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
         });
     }
 
+    public void testUnresolvableModelReferenceBecomesExactZeroAfterThreshold() throws Exception {
+        TrainedModelConfig trainedModelConfig = mock(TrainedModelConfig.class);
+        when(trainedModelConfig.getModelSize()).thenReturn(100L);
+        AtomicInteger fetchAttempts = new AtomicInteger();
+        doAnswer(invocation -> {
+            ActionListener<TrainedModelConfig> listener = invocation.getArgument(3);
+            if (fetchAttempts.incrementAndGet() == 1) {
+                listener.onFailure(new RuntimeException("model not found"));
+            } else {
+                listener.onResponse(trainedModelConfig);
+            }
+            return null;
+        }).when(trainedModelProvider).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
+
+        ClusterState current = masterClusterState(withIngestModels(Map.of(PROJECT_A, "model-a")));
+        service.clusterChanged(new ClusterChangedEvent("test", current, masterClusterState(ClusterState.EMPTY_STATE.metadata())));
+
+        assertBusy(() -> {
+            assertThat(service.getRequiredHeapBytes().isExact(), is(false));
+            verify(trainedModelProvider, times(1)).getTrainedModel(
+                eq("model-a"),
+                eq(GetTrainedModelsAction.Includes.empty()),
+                any(),
+                any()
+            );
+        });
+
+        long staleSince = threadPool.relativeTimeInNanos() - IngestModelMemoryService.STALE_MODEL_SIZE_WARN_THRESHOLD.nanos() - 1;
+        service.setUnresolvedSinceNanosForTests("model-a", staleSince);
+
+        service.reconcileModelSizesForTests();
+
+        IngestModelMemoryProvider.HeapRequirement staleRequirement = service.getRequiredHeapBytes();
+        assertThat(staleRequirement.heapBytes(), equalTo(0L));
+        assertThat(staleRequirement.isExact(), is(true));
+
+        assertBusy(() -> {
+            IngestModelMemoryProvider.HeapRequirement requirement = service.getRequiredHeapBytes();
+            assertThat(requirement.heapBytes(), equalTo(100L));
+            assertThat(requirement.isExact(), is(true));
+        });
+    }
+
     public void testUnresolvedModelSizeShouldWarnAfterStalenessThreshold() throws Exception {
         doAnswer(invocation -> null).when(trainedModelProvider)
             .getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());

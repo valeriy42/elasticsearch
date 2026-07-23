@@ -173,21 +173,27 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
                 warnIfUnresolvedTooLong(modelId);
             }
         }
+        recomputeHeapRequirement();
+    }
+
+    private boolean isUnresolvedLongerThanWarnThreshold(String modelId) {
+        Long sinceNanos = unresolvedSinceNanos.get(modelId);
+        if (sinceNanos == null) {
+            return false;
+        }
+        return threadPool.relativeTimeInNanos() - sinceNanos > STALE_MODEL_SIZE_WARN_THRESHOLD.nanos();
     }
 
     private void warnIfUnresolvedTooLong(String modelId) {
-        Long sinceNanos = unresolvedSinceNanos.get(modelId);
-        if (sinceNanos == null) {
+        if (isUnresolvedLongerThanWarnThreshold(modelId) == false) {
             return;
         }
-        if (threadPool.relativeTimeInNanos() - sinceNanos > STALE_MODEL_SIZE_WARN_THRESHOLD.nanos()) {
-            logger.warn(
-                "Ingest model [{}] heap size has been unresolved for over {}; ingest-tier autoscaling quality will stay MINIMUM "
-                    + "until this resolves",
-                modelId,
-                STALE_MODEL_SIZE_WARN_THRESHOLD
-            );
-        }
+        logger.warn(
+            "Ingest model [{}] heap size has been unresolved for over {}; ingest-tier autoscaling quality will stay MINIMUM "
+                + "until this resolves",
+            modelId,
+            STALE_MODEL_SIZE_WARN_THRESHOLD
+        );
     }
 
     private void recordUnresolvedModel(String modelId) {
@@ -197,10 +203,11 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
     private synchronized void recomputeHeapRequirement() {
         long total = 0L;
         boolean exact = true;
-        for (OptionalLong size : globalModelSizes.values()) {
+        for (var entry : globalModelSizes.entrySet()) {
+            OptionalLong size = entry.getValue();
             if (size.isPresent()) {
                 total += size.getAsLong();
-            } else {
+            } else if (isUnresolvedLongerThanWarnThreshold(entry.getKey()) == false) {
                 exact = false;
             }
         }
