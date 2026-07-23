@@ -189,8 +189,9 @@ public class IngestModelMemoryService implements ClusterStateListener, IngestMod
             return;
         }
         logger.warn(
-            "Ingest model [{}] heap size has been unresolved for over {}; ingest-tier autoscaling quality will stay MINIMUM "
-                + "until this resolves",
+            "Ingest model [{}] heap size has been unresolved for over {}; heap contribution is now treated as exact zero so "
+                + "ingest-tier autoscaling quality is no longer pinned at MINIMUM for this reason, but the model is still "
+                + "unresolved and fetches continue in the background",
             modelId,
             STALE_MODEL_SIZE_WARN_THRESHOLD
         );

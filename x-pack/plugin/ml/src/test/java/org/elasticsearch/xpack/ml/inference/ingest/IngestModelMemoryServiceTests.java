@@ -400,7 +400,7 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
                     "stale model size",
                     IngestModelMemoryService.class.getCanonicalName(),
                     Level.WARN,
-                    "Ingest model [model-a] heap size has been unresolved for over *"
+                    "Ingest model [model-a] heap size has been unresolved for over *; heap contribution is now treated as exact zero*"
                 )
             );
             service.reconcileModelSizesForTests();
