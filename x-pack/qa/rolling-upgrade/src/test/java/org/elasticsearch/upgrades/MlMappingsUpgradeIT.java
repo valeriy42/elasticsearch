@@ -136,7 +136,7 @@ public class MlMappingsUpgradeIT extends AbstractUpgradeTestCase {
      */
     private void ensureTestJobIsOpen() throws IOException {
         Request getJob = new Request("GET", "_ml/anomaly_detectors/" + JOB_ID);
-        Response response = performRequestRetryingOnTransientStatus(getJob, RestStatus.NOT_FOUND);
+        Response response = performRequestRaisingAssertionOnTransientStatus(getJob, RestStatus.NOT_FOUND);
         assertEquals(200, response.getStatusLine().getStatusCode());
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> jobs = (List<Map<String, Object>>) entityAsMap(response).get("jobs");
@@ -169,7 +169,7 @@ public class MlMappingsUpgradeIT extends AbstractUpgradeTestCase {
         assertBusy(() -> {
             ensureTestJobIsOpen();
             Request getMappings = new Request("GET", XPackRestTestHelper.resultsWriteAlias(JOB_ID) + "/_mappings");
-            Response response = performRequestRetryingOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
+            Response response = performRequestRaisingAssertionOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
 
             Map<String, Object> responseLevel = entityAsMap(response);
             assertNotNull(responseLevel);
@@ -205,7 +205,7 @@ public class MlMappingsUpgradeIT extends AbstractUpgradeTestCase {
 
         assertBusy(() -> {
             Request getMappings = new Request("GET", ".ml-annotations-write/_mappings");
-            Response response = performRequestRetryingOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
+            Response response = performRequestRaisingAssertionOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
 
             Map<String, Object> responseLevel = entityAsMap(response);
             assertNotNull(responseLevel);
@@ -271,7 +271,7 @@ public class MlMappingsUpgradeIT extends AbstractUpgradeTestCase {
                         + "version, direct access to system indices will be prevented by default"
                 )
             );
-            Response response = performRequestRetryingOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
+            Response response = performRequestRaisingAssertionOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
 
             Map<String, Object> responseLevel = entityAsMap(response);
             assertNotNull(responseLevel);
@@ -297,7 +297,7 @@ public class MlMappingsUpgradeIT extends AbstractUpgradeTestCase {
     private void assertNotificationsIndexAliasCreated() throws Exception {
         assertBusy(() -> {
             Request getMappings = new Request("GET", "_alias/.ml-notifications-write");
-            Response response = performRequestRetryingOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
+            Response response = performRequestRaisingAssertionOnTransientStatus(getMappings, RestStatus.NOT_FOUND);
             Map<String, Object> responseMap = entityAsMap(response);
             assertThat(responseMap.entrySet(), hasSize(1));
             var aliases = (Map<String, Object>) responseMap.get(".ml-notifications-000002");
