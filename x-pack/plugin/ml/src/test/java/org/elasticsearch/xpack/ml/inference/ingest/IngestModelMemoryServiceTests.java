@@ -378,12 +378,14 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
         assertThat(staleRequirement.heapBytes(), equalTo(0L));
         assertThat(staleRequirement.isExact(), is(true));
 
-        assertBusy(() -> verify(trainedModelProvider, times(2)).getTrainedModel(
-            eq("model-a"),
-            eq(GetTrainedModelsAction.Includes.empty()),
-            any(),
-            any()
-        ));
+        assertBusy(
+            () -> verify(trainedModelProvider, times(2)).getTrainedModel(
+                eq("model-a"),
+                eq(GetTrainedModelsAction.Includes.empty()),
+                any(),
+                any()
+            )
+        );
 
         allowResolution.set(true);
         service.reconcileModelSizesForTests();
@@ -393,12 +395,7 @@ public class IngestModelMemoryServiceTests extends ESTestCase {
             assertThat(requirement.heapBytes(), equalTo(100L));
             assertThat(requirement.isExact(), is(true));
         });
-        verify(trainedModelProvider, times(3)).getTrainedModel(
-            eq("model-a"),
-            eq(GetTrainedModelsAction.Includes.empty()),
-            any(),
-            any()
-        );
+        verify(trainedModelProvider, times(3)).getTrainedModel(eq("model-a"), eq(GetTrainedModelsAction.Includes.empty()), any(), any());
     }
 
     public void testUnresolvedModelSizeShouldWarnAfterStalenessThreshold() throws Exception {
