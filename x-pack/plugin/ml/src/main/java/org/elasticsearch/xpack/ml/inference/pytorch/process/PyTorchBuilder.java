@@ -7,6 +7,7 @@
 
 package org.elasticsearch.xpack.ml.inference.pytorch.process;
 
+import org.apache.lucene.util.Constants;
 import org.elasticsearch.xpack.core.ml.action.StartTrainedModelDeploymentAction;
 import org.elasticsearch.xpack.core.ml.inference.assignment.Priority;
 import org.elasticsearch.xpack.ml.process.NativeController;
@@ -35,6 +36,7 @@ public class PyTorchBuilder {
     private final StartTrainedModelDeploymentAction.TaskParams taskParams;
     private final boolean modelGraphValidationEnabled;
     private final boolean sandboxEnabled;
+    private final boolean isLinux;
 
     public PyTorchBuilder(
         NativeController nativeController,
@@ -43,11 +45,23 @@ public class PyTorchBuilder {
         boolean modelGraphValidationEnabled,
         boolean sandboxEnabled
     ) {
+        this(nativeController, processPipes, taskParams, modelGraphValidationEnabled, sandboxEnabled, Constants.LINUX);
+    }
+
+    PyTorchBuilder(
+        NativeController nativeController,
+        ProcessPipes processPipes,
+        StartTrainedModelDeploymentAction.TaskParams taskParams,
+        boolean modelGraphValidationEnabled,
+        boolean sandboxEnabled,
+        boolean isLinux
+    ) {
         this.nativeController = Objects.requireNonNull(nativeController);
         this.processPipes = Objects.requireNonNull(processPipes);
         this.taskParams = Objects.requireNonNull(taskParams);
         this.modelGraphValidationEnabled = modelGraphValidationEnabled;
         this.sandboxEnabled = sandboxEnabled;
+        this.isLinux = isLinux;
     }
 
     public void build() throws IOException, InterruptedException {
@@ -74,7 +88,7 @@ public class PyTorchBuilder {
         if (modelGraphValidationEnabled == false) {
             command.add(SKIP_MODEL_VALIDATION_ARG);
         }
-        if (sandboxEnabled == false) {
+        if (sandboxEnabled == false && isLinux) {
             command.add(DISABLE_SANDBOX_ARG);
         }
 

@@ -150,7 +150,8 @@ public class PyTorchBuilderTests extends ESTestCase {
             processPipes,
             new TaskParams("my_model", "my_deployment", 42L, 4, 2, 1024, ByteSizeValue.ofBytes(12), Priority.NORMAL, 0L, 0L),
             true,
-            false
+            false,
+            true
         ).build();
 
         verify(nativeController).startProcess(commandCaptor.capture());
@@ -164,6 +165,31 @@ public class PyTorchBuilderTests extends ESTestCase {
                 "--numAllocations=4",
                 "--cacheMemorylimitBytes=12",
                 "--disableSandbox",
+                PROCESS_PIPES_ARG
+            )
+        );
+    }
+
+    public void testBuildWithSandboxDisabledOnNonLinuxDoesNotEmitFlag() throws IOException, InterruptedException {
+        new PyTorchBuilder(
+            nativeController,
+            processPipes,
+            new TaskParams("my_model", "my_deployment", 42L, 4, 2, 1024, ByteSizeValue.ofBytes(12), Priority.NORMAL, 0L, 0L),
+            true,
+            false,
+            false
+        ).build();
+
+        verify(nativeController).startProcess(commandCaptor.capture());
+
+        assertThat(
+            commandCaptor.getValue(),
+            contains(
+                "./pytorch_inference",
+                "--validElasticLicenseKeyConfirmed=true",
+                "--numThreadsPerAllocation=2",
+                "--numAllocations=4",
+                "--cacheMemorylimitBytes=12",
                 PROCESS_PIPES_ARG
             )
         );
