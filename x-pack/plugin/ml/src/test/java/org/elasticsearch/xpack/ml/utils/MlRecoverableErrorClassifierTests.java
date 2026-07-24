@@ -147,6 +147,41 @@ public class MlRecoverableErrorClassifierTests extends ESTestCase {
     }
 
     // -------------------------------------------------------------------------
+    // Capacity constraint sub-classifier
+    // -------------------------------------------------------------------------
+
+    public void testTooManyRequestsStatusShouldBeCapacityConstrained() {
+        var e = new ElasticsearchStatusException("too many requests", RestStatus.TOO_MANY_REQUESTS);
+        assertTrue(MlRecoverableErrorClassifier.isCapacityConstrained(e));
+    }
+
+    public void testTransientCircuitBreakerShouldBeCapacityConstrained() {
+        var e = new CircuitBreakingException("transient", CircuitBreaker.Durability.TRANSIENT);
+        assertTrue(MlRecoverableErrorClassifier.isCapacityConstrained(e));
+    }
+
+    public void testNonShutdownRejectionShouldBeCapacityConstrained() {
+        var e = new EsRejectedExecutionException("pool full", false);
+        assertTrue(MlRecoverableErrorClassifier.isCapacityConstrained(e));
+    }
+
+    public void testShutdownRejectionShouldNotBeCapacityConstrained() {
+        var e = new EsRejectedExecutionException("executor shutdown", true);
+        assertFalse(MlRecoverableErrorClassifier.isCapacityConstrained(e));
+    }
+
+    public void testAvailabilityErrorShouldNotBeCapacityConstrained() {
+        var e = new SearchPhaseExecutionException("query", "partial results", ShardSearchFailure.EMPTY_ARRAY);
+        assertFalse(MlRecoverableErrorClassifier.isCapacityConstrained(e));
+    }
+
+    public void testWrappedTooManyRequestsShouldBeCapacityConstrained() {
+        var inner = new ElasticsearchStatusException("too many requests", RestStatus.TOO_MANY_REQUESTS);
+        var wrapped = new RemoteTransportException("remote", inner);
+        assertTrue(MlRecoverableErrorClassifier.isCapacityConstrained(wrapped));
+    }
+
+    // -------------------------------------------------------------------------
     // Layer 4: Transport Plane (always recoverable)
     // -------------------------------------------------------------------------
 
