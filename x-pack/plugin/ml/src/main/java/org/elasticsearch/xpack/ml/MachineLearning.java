@@ -780,9 +780,13 @@ public class MachineLearning extends Plugin
     );
 
     /**
-     * Initial retry delay used by the AD job-open pipeline when the most recent failure is capacity-constrained
+     * Backoff-bound floor for capacity-constrained failures in the AD job-open pipeline
      * (scroll-context/circuit-breaker/thread-pool saturation). Longer than the default 5s so the search tier can
-     * drain before the revert delete is re-issued. See elastic/elasticsearch#153260.
+     * drain before the revert delete is re-issued. Because {@code RetryableAction} sleeps on the previous bound for
+     * the failing attempt, this floor takes effect from the second capacity retry onward—the first capacity failure
+     * still waits the prior ~5s bound. Applied by
+     * {@link org.elasticsearch.xpack.ml.job.task.OpenJobPersistentTasksExecutor.OpenJobRetryableAction}.
+     * See elastic/elasticsearch#153260.
      */
     public static final Setting<TimeValue> JOB_OPEN_CAPACITY_RETRY_INITIAL_DELAY = Setting.timeSetting(
         "xpack.ml.job_open_capacity_retry_initial_delay",
